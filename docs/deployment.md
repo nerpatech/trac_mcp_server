@@ -103,7 +103,7 @@ See [Configuration Reference](reference/configuration.md) for the full config fi
 
 ### .env File
 
-trac-mcp-server loads a `.env` file from the working directory via python-dotenv. This is useful for local development when not using a YAML config file.
+trac-mcp-server loads a `.env` file from the working directory via python-dotenv. Values from `.env` sit between real shell env vars and config file values in precedence. You can use `.env` alongside a YAML config file.
 
 ```bash
 # .env

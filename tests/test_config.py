@@ -6,7 +6,6 @@ server bootstrap path: validate_config() and load_config().
 """
 
 import logging
-from unittest.mock import patch
 
 import pytest
 
@@ -180,12 +179,6 @@ class TestValidateConfig:
 class TestLoadConfig:
     """Tests for load_config() — env var loading, CLI overrides, boolean parsing."""
 
-    @pytest.fixture(autouse=True)
-    def _patch_dotenv(self):
-        """Prevent load_dotenv from reading real .env files during tests."""
-        with patch("trac_mcp_server.config.load_dotenv"):
-            yield
-
     def test_load_from_env_vars(self, monkeypatch):
         monkeypatch.setenv("TRAC_URL", "https://trac.example.com/trac")
         monkeypatch.setenv("TRAC_USERNAME", "admin")
@@ -235,6 +228,16 @@ class TestLoadConfig:
 
         with pytest.raises(ValueError, match="Trac password not found"):
             load_config()
+
+    def test_max_batch_default(self, monkeypatch):
+        """Default max_batch_size is 500 when env var is unset."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+        monkeypatch.delenv("TRAC_MAX_BATCH_SIZE", raising=False)
+
+        config = load_config()
+        assert config.max_batch_size == 500
 
     # --- Boolean env var parsing ---
 
@@ -471,3 +474,152 @@ class TestLoadConfig:
             ValueError, match="must start with http:// or https://"
         ):
             load_config()
+
+
+# -------------------------------------------------------------------------
+# load_config() with yaml_fallbacks
+# -------------------------------------------------------------------------
+
+
+class TestLoadConfigWithYamlFallbacks:
+    """Tests for load_config() yaml_fallbacks parameter — YAML as lowest-priority source."""
+
+    def test_yaml_fallback_used_when_no_env_or_cli(self, monkeypatch):
+        """YAML fallback values used when no CLI args or env vars set."""
+        monkeypatch.delenv("TRAC_URL", raising=False)
+        monkeypatch.delenv("TRAC_USERNAME", raising=False)
+        monkeypatch.delenv("TRAC_PASSWORD", raising=False)
+
+        config = load_config(
+            yaml_fallbacks={
+                "url": "https://yaml.example.com",
+                "username": "yamluser",
+                "password": "yamlpass",
+            }
+        )
+        assert config.trac_url == "https://yaml.example.com"
+        assert config.username == "yamluser"
+        assert config.password == "yamlpass"
+
+    def test_env_var_overrides_yaml_fallback(self, monkeypatch):
+        """Env var takes precedence over YAML fallback."""
+        monkeypatch.setenv("TRAC_URL", "https://env.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "envuser")
+        monkeypatch.setenv("TRAC_PASSWORD", "envpass")
+
+        config = load_config(
+            yaml_fallbacks={
+                "url": "https://yaml.example.com",
+                "username": "yamluser",
+                "password": "yamlpass",
+            }
+        )
+        assert config.trac_url == "https://env.example.com"
+        assert config.username == "envuser"
+        assert config.password == "envpass"
+
+    def test_cli_overrides_env_and_yaml(self, monkeypatch):
+        """CLI args take precedence over both env vars and YAML fallbacks."""
+        monkeypatch.setenv("TRAC_URL", "https://env.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "envuser")
+        monkeypatch.setenv("TRAC_PASSWORD", "envpass")
+
+        config = load_config(
+            url="https://cli.example.com",
+            username="cliuser",
+            password="clipass",
+            yaml_fallbacks={
+                "url": "https://yaml.example.com",
+                "username": "yamluser",
+                "password": "yamlpass",
+            },
+        )
+        assert config.trac_url == "https://cli.example.com"
+        assert config.username == "cliuser"
+        assert config.password == "clipass"
+
+    def test_partial_yaml_with_env_filling_gaps(self, monkeypatch):
+        """YAML provides URL, env var provides credentials."""
+        monkeypatch.delenv("TRAC_URL", raising=False)
+        monkeypatch.setenv("TRAC_USERNAME", "envuser")
+        monkeypatch.setenv("TRAC_PASSWORD", "envpass")
+
+        config = load_config(
+            yaml_fallbacks={"url": "https://yaml.example.com"}
+        )
+        assert config.trac_url == "https://yaml.example.com"
+        assert config.username == "envuser"
+        assert config.password == "envpass"
+
+    def test_numeric_field_fallback_max_parallel(self, monkeypatch):
+        """max_parallel_requests uses YAML fallback when env var unset."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+        monkeypatch.delenv("TRAC_MAX_PARALLEL_REQUESTS", raising=False)
+
+        config = load_config(
+            yaml_fallbacks={"max_parallel_requests": 8}
+        )
+        assert config.max_parallel_requests == 8
+
+    def test_numeric_field_env_overrides_yaml(self, monkeypatch):
+        """Env var for max_parallel_requests overrides YAML fallback."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+        monkeypatch.setenv("TRAC_MAX_PARALLEL_REQUESTS", "20")
+
+        config = load_config(
+            yaml_fallbacks={"max_parallel_requests": 8}
+        )
+        assert config.max_parallel_requests == 20
+
+    def test_boolean_field_fallback_insecure(self, monkeypatch):
+        """insecure uses YAML fallback when CLI is False and env var unset."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+        monkeypatch.delenv("TRAC_INSECURE", raising=False)
+
+        config = load_config(
+            yaml_fallbacks={"insecure": True}
+        )
+        assert config.insecure is True
+
+    def test_boolean_env_overrides_yaml_insecure(self, monkeypatch):
+        """Env var TRAC_INSECURE=false overrides YAML insecure=true."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+        monkeypatch.setenv("TRAC_INSECURE", "false")
+
+        config = load_config(
+            yaml_fallbacks={"insecure": True}
+        )
+        assert config.insecure is False
+
+    def test_empty_yaml_fallbacks_same_as_none(self, monkeypatch):
+        """Empty dict yaml_fallbacks behaves same as None."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+
+        config_with_empty = load_config(yaml_fallbacks={})
+        config_with_none = load_config(yaml_fallbacks=None)
+
+        assert config_with_empty.trac_url == config_with_none.trac_url
+        assert config_with_empty.username == config_with_none.username
+        assert config_with_empty.max_parallel_requests == config_with_none.max_parallel_requests
+
+    def test_max_batch_size_fallback(self, monkeypatch):
+        """max_batch_size uses YAML fallback when env var unset."""
+        monkeypatch.setenv("TRAC_URL", "https://trac.example.com")
+        monkeypatch.setenv("TRAC_USERNAME", "user")
+        monkeypatch.setenv("TRAC_PASSWORD", "pass")
+        monkeypatch.delenv("TRAC_MAX_BATCH_SIZE", raising=False)
+
+        config = load_config(
+            yaml_fallbacks={"max_batch_size": 1000}
+        )
+        assert config.max_batch_size == 1000

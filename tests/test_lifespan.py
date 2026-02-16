@@ -1,7 +1,8 @@
 """Tests for trac_mcp_server.mcp.lifespan — server startup/shutdown lifecycle.
 
 Tests the server_lifespan() async context manager which:
-- Loads config from YAML config files or env vars (with optional CLI overrides)
+- Loads .env file, then YAML config files (as fallbacks), then env vars with CLI overrides
+- Calls load_config() with unified precedence (CLI > env > YAML > defaults)
 - Creates TracClient and validates connection
 - Initializes concurrency semaphore
 - Fails fast on config errors or connection failures
@@ -19,10 +20,11 @@ from trac_mcp_server.mcp.lifespan import server_lifespan
 # Helpers
 # -------------------------------------------------------------------------
 
-# Shorthand for patching discover_config_files to return no files
+# Shorthand patches used across many tests
 _NO_CONFIG_FILES = patch(
     "trac_mcp_server.mcp.lifespan.discover_config_files", return_value=[]
 )
+_MOCK_DOTENV = patch("trac_mcp_server.mcp.lifespan.load_dotenv")
 
 
 def _make_config(**overrides):
@@ -40,7 +42,7 @@ def _make_config(**overrides):
 
 
 # -------------------------------------------------------------------------
-# server_lifespan() — successful startup (env var path)
+# server_lifespan() — successful startup (env var path, no YAML)
 # -------------------------------------------------------------------------
 
 
@@ -52,6 +54,7 @@ class TestServerLifespanSuccess:
         config = _make_config()
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -82,6 +85,7 @@ class TestServerLifespanSuccess:
         config = _make_config(max_parallel_requests=12)
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -114,6 +118,7 @@ class TestServerLifespanSuccess:
         }
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -136,15 +141,16 @@ class TestServerLifespanSuccess:
                     username="u",
                     password="p",
                     insecure=True,
+                    debug=False,
+                    yaml_fallbacks=None,
                 )
 
-    async def test_startup_without_overrides_calls_load_config_bare(
-        self,
-    ):
+    async def test_startup_without_overrides_calls_load_config(self):
         mock_client = MagicMock()
         config = _make_config()
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -162,20 +168,26 @@ class TestServerLifespanSuccess:
             patch("trac_mcp_server.mcp.lifespan._stderr_print"),
         ):
             async with server_lifespan() as _:
-                mock_load.assert_called_once_with()
+                mock_load.assert_called_once_with(
+                    url=None,
+                    username=None,
+                    password=None,
+                    insecure=False,
+                    debug=False,
+                    yaml_fallbacks=None,
+                )
 
 
 # -------------------------------------------------------------------------
-# server_lifespan() — YAML config file path
+# server_lifespan() — YAML config file path (unified flow)
 # -------------------------------------------------------------------------
 
 
 class TestServerLifespanYamlConfig:
-    """Tests for loading config from .trac_mcp/config.yml."""
+    """Tests for loading config from .trac_mcp/config.yml via unified flow."""
 
-    async def test_yaml_config_used_when_file_exists(self, tmp_path):
-        """When a YAML config file exists, lifespan uses config_loader pipeline."""
-        # Create a config file in tmp_path
+    async def test_yaml_config_passes_fallbacks_to_load_config(self, tmp_path):
+        """When YAML file exists, load_config receives yaml_fallbacks dict."""
         config_dir = tmp_path / ".trac_mcp"
         config_dir.mkdir()
         config_file = config_dir / "config.yml"
@@ -187,8 +199,10 @@ class TestServerLifespanYamlConfig:
         )
 
         mock_client = MagicMock()
+        config = _make_config()
 
         with (
+            _MOCK_DOTENV,
             patch(
                 "trac_mcp_server.mcp.lifespan.discover_config_files",
                 return_value=[config_file],
@@ -204,6 +218,10 @@ class TestServerLifespanYamlConfig:
                 },
             ),
             patch(
+                "trac_mcp_server.mcp.lifespan.load_config",
+                return_value=config,
+            ) as mock_load,
+            patch(
                 "trac_mcp_server.mcp.lifespan.TracClient",
                 return_value=mock_client,
             ),
@@ -216,6 +234,13 @@ class TestServerLifespanYamlConfig:
         ):
             async with server_lifespan() as ctx:
                 assert ctx["client"] is mock_client
+
+            # Verify load_config received yaml_fallbacks with non-None values
+            call_kwargs = mock_load.call_args.kwargs
+            fb = call_kwargs["yaml_fallbacks"]
+            assert fb["url"] == "https://yaml-trac.example.com"
+            assert fb["username"] == "yamluser"
+            assert fb["password"] == "yamlpass"
 
     async def test_yaml_config_values_used(self, tmp_path):
         """Verify that values from YAML config end up in the Config object."""
@@ -237,7 +262,15 @@ class TestServerLifespanYamlConfig:
             captured_config["config"] = config
             return mock_client
 
+        config = _make_config(
+            trac_url="https://yaml-trac.example.com",
+            username="yamluser",
+            password="yamlpass",
+            max_parallel_requests=3,
+        )
+
         with (
+            _MOCK_DOTENV,
             patch(
                 "trac_mcp_server.mcp.lifespan.discover_config_files",
                 return_value=[config_file],
@@ -252,6 +285,10 @@ class TestServerLifespanYamlConfig:
                         "max_parallel_requests": 3,
                     }
                 },
+            ),
+            patch(
+                "trac_mcp_server.mcp.lifespan.load_config",
+                return_value=config,
             ),
             patch(
                 "trac_mcp_server.mcp.lifespan.TracClient",
@@ -286,15 +323,11 @@ class TestServerLifespanYamlConfig:
         )
 
         mock_client = MagicMock()
-        captured_config = {}
-
-        def capture_client(config):
-            captured_config["config"] = config
-            return mock_client
-
+        config = _make_config(trac_url="https://cli-override.example.com")
         overrides = {"url": "https://cli-override.example.com"}
 
         with (
+            _MOCK_DOTENV,
             patch(
                 "trac_mcp_server.mcp.lifespan.discover_config_files",
                 return_value=[config_file],
@@ -310,8 +343,12 @@ class TestServerLifespanYamlConfig:
                 },
             ),
             patch(
+                "trac_mcp_server.mcp.lifespan.load_config",
+                return_value=config,
+            ) as mock_load,
+            patch(
                 "trac_mcp_server.mcp.lifespan.TracClient",
-                side_effect=capture_client,
+                return_value=mock_client,
             ),
             patch(
                 "trac_mcp_server.mcp.lifespan.run_sync",
@@ -323,12 +360,11 @@ class TestServerLifespanYamlConfig:
             async with server_lifespan(config_overrides=overrides) as _:
                 pass
 
-        config = captured_config["config"]
-        # CLI override wins for url
-        assert config.trac_url == "https://cli-override.example.com"
-        # YAML values used for non-overridden fields
-        assert config.username == "yamluser"
-        assert config.password == "yamlpass"
+        # CLI override passed to load_config
+        call_kwargs = mock_load.call_args.kwargs
+        assert call_kwargs["url"] == "https://cli-override.example.com"
+        # YAML fallbacks also passed
+        assert call_kwargs["yaml_fallbacks"]["url"] == "https://yaml-trac.example.com"
 
     async def test_yaml_config_stderr_mentions_config_file(self, tmp_path):
         """Stderr output should mention the config file path."""
@@ -343,9 +379,11 @@ class TestServerLifespanYamlConfig:
         )
 
         mock_client = MagicMock()
+        config = _make_config()
         stderr_messages = []
 
         with (
+            _MOCK_DOTENV,
             patch(
                 "trac_mcp_server.mcp.lifespan.discover_config_files",
                 return_value=[config_file],
@@ -359,6 +397,10 @@ class TestServerLifespanYamlConfig:
                         "password": "yamlpass",
                     }
                 },
+            ),
+            patch(
+                "trac_mcp_server.mcp.lifespan.load_config",
+                return_value=config,
             ),
             patch(
                 "trac_mcp_server.mcp.lifespan.TracClient",
@@ -382,12 +424,13 @@ class TestServerLifespanYamlConfig:
         assert str(config_file) in full_output
 
     async def test_env_var_path_when_no_config_files(self):
-        """When no YAML config files exist, falls back to env var loading."""
+        """When no YAML config files exist, load_config gets yaml_fallbacks=None."""
         mock_client = MagicMock()
         config = _make_config()
         stderr_messages = []
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -408,10 +451,60 @@ class TestServerLifespanYamlConfig:
             ),
         ):
             async with server_lifespan() as _:
-                mock_load.assert_called_once_with()
+                call_kwargs = mock_load.call_args.kwargs
+                assert call_kwargs["yaml_fallbacks"] is None
 
         full_output = "\n".join(stderr_messages)
         assert "environment variables" in full_output.lower()
+
+    async def test_yaml_fallbacks_exclude_none_values(self, tmp_path):
+        """YAML fallbacks dict only contains non-None values from trac section."""
+        config_dir = tmp_path / ".trac_mcp"
+        config_dir.mkdir()
+        config_file = config_dir / "config.yml"
+        config_file.write_text("trac:\n  url: https://yaml.example.com\n")
+
+        mock_client = MagicMock()
+        config = _make_config()
+
+        with (
+            _MOCK_DOTENV,
+            patch(
+                "trac_mcp_server.mcp.lifespan.discover_config_files",
+                return_value=[config_file],
+            ),
+            patch(
+                "trac_mcp_server.mcp.lifespan.load_hierarchical_config",
+                return_value={
+                    "trac": {"url": "https://yaml.example.com"}
+                },
+            ),
+            patch(
+                "trac_mcp_server.mcp.lifespan.load_config",
+                return_value=config,
+            ) as mock_load,
+            patch(
+                "trac_mcp_server.mcp.lifespan.TracClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "trac_mcp_server.mcp.lifespan.run_sync",
+                return_value="1.3.5",
+            ),
+            patch("trac_mcp_server.mcp.lifespan.init_semaphore"),
+            patch("trac_mcp_server.mcp.lifespan._stderr_print"),
+        ):
+            async with server_lifespan() as _:
+                pass
+
+        fb = mock_load.call_args.kwargs["yaml_fallbacks"]
+        # url should be present
+        assert fb["url"] == "https://yaml.example.com"
+        # None-valued fields (username, password) should be excluded
+        assert "username" not in fb
+        assert "password" not in fb
+        # Default-valued fields (insecure=False, etc.) ARE included since they're non-None
+        assert "insecure" in fb
 
 
 # -------------------------------------------------------------------------
@@ -424,6 +517,7 @@ class TestServerLifespanConfigError:
 
     async def test_config_error_raises_runtime_error(self):
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -439,6 +533,7 @@ class TestServerLifespanConfigError:
 
     async def test_config_error_includes_original_message(self):
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -456,6 +551,7 @@ class TestServerLifespanConfigError:
         stderr_messages = []
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -489,6 +585,7 @@ class TestServerLifespanConnectionError:
         mock_client = MagicMock()
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -513,6 +610,7 @@ class TestServerLifespanConnectionError:
         mock_client = MagicMock()
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -540,6 +638,7 @@ class TestServerLifespanConnectionError:
         stderr_messages = []
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -574,6 +673,7 @@ class TestServerLifespanConnectionError:
         mock_client = MagicMock()
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -607,6 +707,7 @@ class TestServerLifespanShutdown:
         mock_client = MagicMock()
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -632,6 +733,7 @@ class TestServerLifespanShutdown:
         stderr_messages = []
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",
@@ -665,6 +767,7 @@ class TestServerLifespanShutdown:
         stderr_messages = []
 
         with (
+            _MOCK_DOTENV,
             _NO_CONFIG_FILES,
             patch(
                 "trac_mcp_server.mcp.lifespan.load_config",

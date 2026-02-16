@@ -100,11 +100,11 @@ Environment variables override config file values. They are always checked, even
 
 Boolean variables (`TRAC_INSECURE`, `TRAC_DEBUG`) accept `true`, `1`, `yes`, or `on` (case-insensitive). Any other value is treated as `false`.
 
-**Note:** When a config file is present, environment variables can still be used via `${VAR}` interpolation in YAML values. When no config file is found, trac-mcp-server falls back to reading environment variables directly.
+**Note:** Environment variables always take precedence over config file values, whether or not a config file is present. The `${VAR}` interpolation syntax in YAML is a convenience for referencing env vars within config files, but is not required -- env vars are checked directly during configuration loading and override any config file value for the same setting.
 
 ## .env File Support
 
-trac-mcp-server uses [python-dotenv](https://pypi.org/project/python-dotenv/) to load a `.env` file from the working directory. This is useful for local development when not using a YAML config file.
+trac-mcp-server uses [python-dotenv](https://pypi.org/project/python-dotenv/) to load a `.env` file from the working directory. Values from `.env` are treated as environment variables and sit between real shell env vars and config file values in the precedence order. You can use `.env` alongside a YAML config file -- for example, store non-secret settings in `config.yaml` and credentials in `.env`.
 
 ```bash
 # .env

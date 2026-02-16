@@ -56,8 +56,8 @@ class TracConfig(BaseModel):
     max_parallel_requests: int = Field(
         default=5,
         ge=1,
-        le=10,
-        description="Maximum concurrent requests to Trac instance (1-10)",
+        le=100,
+        description="Maximum concurrent requests to Trac instance (1-100)",
     )
     max_batch_size: int = Field(
         default=500,
