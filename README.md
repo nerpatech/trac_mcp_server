@@ -28,7 +28,7 @@ trac-mcp-server
 
 ## Configuration
 
-All configuration is via environment variables (or a `.env` file in the working directory):
+Configuration via environment variables, `.env` file, or YAML config file (`.trac_mcp/config.yaml`):
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -39,6 +39,8 @@ All configuration is via environment variables (or a `.env` file in the working 
 | `TRAC_DEBUG` | No | `false` | Enable debug logging |
 | `TRAC_MAX_PARALLEL_REQUESTS` | No | `5` | Max parallel XML-RPC requests |
 | `TRAC_MAX_BATCH_SIZE` | No | `500` | Max items per batch operation (1-10000) |
+
+For YAML config file format and advanced options, see [Configuration Reference](docs/reference/configuration.md).
 
 ## MCP Client Integration
 

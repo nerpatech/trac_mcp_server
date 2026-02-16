@@ -8,7 +8,6 @@ Tests the server_lifespan() async context manager which:
 - Prints status messages to stderr
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
