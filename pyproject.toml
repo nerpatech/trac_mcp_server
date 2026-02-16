@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trac-mcp-server"
+version = "2.1.1"
+description = "Standalone MCP Server for Trac integration"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["trac", "mcp", "model-context-protocol", "project-management", "xml-rpc"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Operating System :: OS Independent",
+]
+authors = [
+  { name = "nerpa.tech" },
+]
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "python-dotenv",
+    "mistune>=3.0.0",
+    "mcp[cli]>=1.26.0,<2.0.0",
+    "PyYAML>=6.0",
+    "lxml>=5.0.0",
+    "merge3>=0.0.15",
+    "pydantic>=2.0.0",
+    "charset-normalizer>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pyinstaller>=6.0.0",
+    "ruff>=0.15.0",
+]
+
+[project.scripts]
+trac-mcp-server = "trac_mcp_server.mcp.server:run"
+
+[project.urls]
+Homepage = "https://github.com/nerpa-tech/trac-mcp-server"
+Repository = "https://github.com/nerpa-tech/trac-mcp-server"
+Issues = "https://github.com/nerpa-tech/trac-mcp-server/issues"
+Changelog = "https://github.com/nerpa-tech/trac-mcp-server/blob/master/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 72
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9",  # pycodestyle errors (subset)
+    "F",                 # pyflakes
+    "B",                 # flake8-bugbear
+    "I",                 # isort
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]  # Allow assert True/False in tests

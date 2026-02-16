@@ -1,0 +1,28 @@
+# trac-mcp-server configuration
+# https://github.com/your-org/trac-mcp-server
+#
+# Trac connection settings can also be set via environment variables:
+#   TRAC_URL, TRAC_USERNAME, TRAC_PASSWORD, TRAC_INSECURE
+#
+trac:
+  url: ${TRAC_URL}
+  username: ${TRAC_USERNAME}
+  password: ${TRAC_PASSWORD}
+  insecure: ${TRAC_INSECURE:-false}
+  max_parallel_requests: 5
+#
+# Sync profiles for bidirectional document sync:
+#
+# sync:
+#   planning:
+#     source: .planning
+#     destination: wiki
+#     format: auto
+#     direction: bidirectional
+#     mappings:
+#       - pattern: "phases/*/*.md"
+#         namespace: "Planning/Phases/{parent}/"
+#
+# logging:
+#   level: INFO
+#   file: null

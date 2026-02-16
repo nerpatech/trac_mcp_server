@@ -1,0 +1,289 @@
+# Deployment Guide
+
+This guide covers installing and configuring trac-mcp-server for use with MCP clients.
+
+## Quick Start
+
+**Get up and running in 5 minutes:**
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Access to a Trac instance with the XML-RPC plugin enabled
+- Trac credentials (username and password)
+
+### Steps
+
+1. **Clone and install:**
+   ```bash
+   git clone <your-repo-url>
+   cd trac-mcp-server
+   pip install .
+   ```
+
+2. **Set your Trac connection:**
+   ```bash
+   export TRAC_URL=https://trac.example.com
+   export TRAC_USERNAME=your-username
+   export TRAC_PASSWORD=your-password
+   ```
+
+   Or create a `.env` file in the working directory:
+   ```bash
+   TRAC_URL=https://trac.example.com
+   TRAC_USERNAME=your-username
+   TRAC_PASSWORD=your-password
+   ```
+
+3. **Verify the installation:**
+   ```bash
+   trac-mcp-server --version
+   ```
+
+4. **Configure your MCP client** (see [MCP Client Configuration](#mcp-client-configuration) below).
+
+---
+
+## Installation Methods
+
+### From Source (Recommended)
+
+```bash
+git clone <your-repo-url>
+cd trac-mcp-server
+pip install .
+```
+
+This installs the `trac-mcp-server` command and all dependencies.
+
+### Development Installation
+
+For development and testing, install in editable mode with dev dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+### pipx (Isolated Environment)
+
+```bash
+pipx install .
+```
+
+This installs `trac-mcp-server` in an isolated environment, avoiding dependency conflicts with other Python packages.
+
+---
+
+## Configuration
+
+trac-mcp-server is configured via environment variables. There are no configuration files.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TRAC_URL` | Yes | -- | Trac instance URL |
+| `TRAC_USERNAME` | Yes | -- | Trac username |
+| `TRAC_PASSWORD` | Yes | -- | Trac password |
+| `TRAC_INSECURE` | No | `false` | Skip SSL verification (development only) |
+| `TRAC_DEBUG` | No | `false` | Enable debug logging |
+| `TRAC_MAX_PARALLEL_REQUESTS` | No | `5` | Max parallel XML-RPC requests |
+| `TRAC_MAX_BATCH_SIZE` | No | `500` | Max items per batch operation (1-10000) |
+
+For full details, see [Configuration Reference](reference/configuration.md).
+
+### .env File
+
+trac-mcp-server loads a `.env` file from the working directory via python-dotenv. This is useful for local development.
+
+```bash
+# .env
+TRAC_URL=https://trac.example.com
+TRAC_USERNAME=your-username
+TRAC_PASSWORD=your-password
+```
+
+**Security:** Never commit `.env` files to version control. The `.env` file is listed in `.gitignore`.
+
+### Credential Security
+
+- Store production credentials separately from development credentials
+- Rotate credentials regularly
+- Limit Trac account permissions to only what is needed
+
+---
+
+## MCP Client Configuration
+
+MCP clients launch `trac-mcp-server` as a subprocess and communicate via stdio. Configure your client with the `trac-mcp-server` command and Trac credentials.
+
+### Claude Desktop
+
+**Configuration file location:**
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+**Configuration:**
+
+```json
+{
+  "mcpServers": {
+    "trac": {
+      "command": "trac-mcp-server",
+      "env": {
+        "TRAC_URL": "https://trac.example.com",
+        "TRAC_USERNAME": "your-username",
+        "TRAC_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+Replace the credential values with your actual Trac instance details.
+
+**After saving:**
+1. Restart Claude Desktop completely (quit and relaunch)
+2. Verify "trac" server shows as connected in settings
+3. Test by asking: "Use the trac tool to ping the server"
+
+**Note:** Claude Desktop does not load `.env` files. All credentials must be in the config JSON.
+
+### Claude Code
+
+Add the server with the Claude Code CLI:
+
+```bash
+claude mcp add trac -e TRAC_URL=https://trac.example.com \
+  -e TRAC_USERNAME=your-username \
+  -e TRAC_PASSWORD=your-password \
+  -- trac-mcp-server
+```
+
+Or create `.mcp.json` in your workspace root:
+
+```json
+{
+  "mcpServers": {
+    "trac": {
+      "command": "trac-mcp-server",
+      "env": {
+        "TRAC_URL": "https://trac.example.com",
+        "TRAC_USERNAME": "your-username",
+        "TRAC_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+If `.mcp.json` contains credentials, add it to `.gitignore`.
+
+### Cline (VS Code Extension)
+
+Add to your VS Code `settings.json`:
+
+```json
+{
+  "cline.mcpServers": {
+    "trac": {
+      "command": "trac-mcp-server",
+      "env": {
+        "TRAC_URL": "https://trac.example.com",
+        "TRAC_USERNAME": "your-username",
+        "TRAC_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+Reload VS Code window after saving.
+
+### OpenCode
+
+Create `opencode.json` in your project root:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "trac": {
+      "type": "local",
+      "command": ["trac-mcp-server"],
+      "enabled": true,
+      "environment": {
+        "TRAC_URL": "https://trac.example.com",
+        "TRAC_USERNAME": "your-username",
+        "TRAC_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+OpenCode uses `"mcp"` (not `"mcpServers"`), `"environment"` (not `"env"`), and requires `"type": "local"` and `"enabled": true`.
+
+### Generic MCP Client
+
+Any MCP client that supports stdio transport can launch `trac-mcp-server`:
+
+```json
+{
+  "mcpServers": {
+    "trac": {
+      "command": "trac-mcp-server",
+      "env": {
+        "TRAC_URL": "https://trac.example.com",
+        "TRAC_USERNAME": "your-username",
+        "TRAC_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+The server reads JSON-RPC requests from stdin and writes responses to stdout. No network ports or sockets are needed.
+
+---
+
+## Testing Your Setup
+
+### Verify Installation
+
+```bash
+trac-mcp-server --version
+```
+
+### Test via MCP Client
+
+After configuring your MCP client:
+
+1. Restart the client (Claude Desktop, VS Code, etc.)
+2. Check connection status in the client's MCP server panel
+3. Test with a simple request: "Use the trac ping tool"
+4. Expected response: "Trac MCP server connected successfully. API version: ..."
+
+### Verify Permissions
+
+Test that your Trac account has the necessary permissions by using the MCP tools:
+
+- **Read access:** Use `ticket_search` or `wiki_get` to confirm read permissions
+- **Write access:** Use `ticket_create` to create a test ticket (requires `TICKET_CREATE` permission)
+- **Wiki access:** Use `wiki_get` to fetch a wiki page (requires `WIKI_VIEW` permission)
+
+See [docs/permissions.md](permissions.md) for a detailed permissions reference.
+
+---
+
+## Troubleshooting
+
+For common issues and solutions, see [Troubleshooting Reference](reference/troubleshooting.md).
+
+**Quick diagnostic steps:**
+
+1. Verify Python version: `python --version` (must be 3.10+)
+2. Verify installation: `trac-mcp-server --version`
+3. Enable debug logging: set `TRAC_DEBUG=true` in your environment or `.env` file
+4. Check log file: `/tmp/trac-mcp-server.log` (default location)
+5. Check MCP client logs for connection or startup errors

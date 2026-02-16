@@ -1,0 +1,31 @@
+# trac-mcp-server Reference
+
+Standalone MCP (Model Context Protocol) server for Trac project management integration. This server enables AI agents and MCP clients to interact with Trac instances via standardized tools for tickets, wiki pages, milestones, and search.
+
+For quick start and installation, see the [README](../../README.md).
+
+---
+
+## Reference Sections
+
+| Section | File | Description |
+|---------|------|-------------|
+| MCP Tools | [mcp-tools.md](mcp-tools.md) | All 29 MCP tools: system, tickets (incl. batch), wiki, wiki file, milestones |
+| MCP Resources | [mcp-resources.md](mcp-resources.md) | Wiki page resources via URI templates |
+| CLI Reference | [cli.md](cli.md) | Command-line interface documentation |
+| Configuration | [configuration.md](configuration.md) | Config sources, file format, environment variables |
+| Error Handling | [error-handling.md](error-handling.md) | Error types, response format, corrective actions |
+| Format Conversion | [format-conversion.md](format-conversion.md) | Markdown to/from TracWiki conversion rules and mappings |
+| Troubleshooting | [troubleshooting.md](troubleshooting.md) | Common errors, solutions, debug mode |
+| Structured JSON Output | [structured-json-output.md](structured-json-output.md) | Dual output format for programmatic consumption |
+
+## Additional Documentation
+
+| Document | Location | Description |
+|----------|----------|-------------|
+| Deployment Guide | [deployment.md](../deployment.md) | Installation, MCP client configuration, credential management |
+| Permissions Guide | [permissions.md](../permissions.md) | Required Trac permissions, security considerations |
+
+---
+
+*Reference documentation for trac-mcp-server*

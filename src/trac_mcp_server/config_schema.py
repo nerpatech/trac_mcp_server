@@ -1,0 +1,252 @@
+"""Unified configuration schema for trac_mcp_server.
+
+Defines Pydantic models for the unified config structure with dedicated
+sections for Trac connection, named sync profiles, and logging. Includes
+adapter function for backward compatibility with existing Config dataclass.
+
+Usage:
+    from trac_mcp_server.config_schema import (
+        UnifiedConfig, build_config, to_legacy_config,
+    )
+
+    raw = load_hierarchical_config()
+    unified = build_config(raw)
+    legacy = to_legacy_config(unified, cli_overrides={"url": "https://..."})
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+if TYPE_CHECKING:
+    from .config import Config
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Section models
+# ---------------------------------------------------------------------------
+
+
+class TracConfig(BaseModel):
+    """Trac server connection settings.
+
+    All fields are optional to support zero-config: env vars and CLI args
+    can supply them at runtime instead.
+    """
+
+    url: str | None = Field(
+        default=None, description="Trac server URL"
+    )
+    username: str | None = Field(
+        default=None, description="Trac username"
+    )
+    password: str | None = Field(
+        default=None, description="Trac password"
+    )
+    insecure: bool = Field(
+        default=False,
+        description="Disable SSL verification (development only)",
+    )
+    debug: bool = Field(default=False, description="Enable debug mode")
+    max_parallel_requests: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Maximum concurrent requests to Trac instance (1-10)",
+    )
+    max_batch_size: int = Field(
+        default=500,
+        ge=1,
+        le=10000,
+        description="Maximum items per batch operation (1-10000)",
+    )
+
+    model_config = {"frozen": True}
+
+
+class SyncMappingRule(BaseModel):
+    """A mapping rule that maps local file patterns to wiki namespaces.
+
+    Attributes:
+        pattern: Glob pattern to match local files (e.g. "phases/*/*.md").
+        namespace: Wiki namespace template (e.g. "Planning/Phases/{parent}/").
+        name_rules: Optional filename pattern to wiki name mapping overrides.
+    """
+
+    pattern: str = Field(
+        ..., description="Glob pattern to match local files"
+    )
+    namespace: str = Field(..., description="Wiki namespace template")
+    name_rules: dict[str, str] | None = Field(
+        default=None,
+        description="Filename pattern to wiki name mapping overrides",
+    )
+
+    model_config = {"frozen": True}
+
+
+class SyncProfileConfig(BaseModel):
+    """Named sync profile (e.g. planning, docs).
+
+    Attributes:
+        source: Source path or directory.
+        destination: Destination target (e.g. "wiki").
+        format: Output format for sync.
+        direction: Sync direction (push, pull, or bidirectional).
+        conflict_strategy: How to handle conflicts.
+        git_safety: Git dirty-state safety behavior.
+        mappings: Ordered list of mapping rules (first-match-wins).
+        exclude: Glob patterns to exclude from sync.
+        state_dir: Directory for sync state JSON files.
+    """
+
+    source: str = Field(..., description="Source path or directory")
+    destination: str = Field(..., description="Destination target")
+    format: Literal["tracwiki", "markdown", "auto"] = Field(
+        default="auto", description="Output format"
+    )
+    direction: Literal["push", "pull", "bidirectional"] = Field(
+        default="bidirectional", description="Sync direction"
+    )
+    conflict_strategy: Literal[
+        "interactive", "markers", "local-wins", "remote-wins"
+    ] = Field(
+        default="interactive", description="How to handle conflicts"
+    )
+    git_safety: Literal["block", "warn", "none"] = Field(
+        default="block", description="Git dirty-state safety behavior"
+    )
+    mappings: list[SyncMappingRule] = Field(
+        default_factory=list,
+        description="Ordered mapping rules (first-match-wins)",
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Glob patterns to exclude from sync",
+    )
+    state_dir: str = Field(
+        default=".trac_mcp",
+        description="Directory for sync state JSON files",
+    )
+
+    model_config = {"frozen": True}
+
+    @model_validator(mode="after")
+    def warn_empty_mappings(self) -> "SyncProfileConfig":
+        """Log a warning if mappings are empty."""
+        if not self.mappings:
+            logger.warning(
+                "SyncProfileConfig '%s' -> '%s' has no mappings; all files in source will map flat to destination.",
+                self.source,
+                self.destination,
+            )
+        return self
+
+
+class LoggingConfig(BaseModel):
+    """Logging configuration.
+
+    Attributes:
+        level: Log level name (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        file: Optional log file path.
+    """
+
+    level: str = Field(default="INFO", description="Log level")
+    file: str | None = Field(
+        default=None, description="Log file path"
+    )
+
+    model_config = {"frozen": True}
+
+
+# ---------------------------------------------------------------------------
+# Top-level unified config
+# ---------------------------------------------------------------------------
+
+
+class UnifiedConfig(BaseModel):
+    """Top-level unified configuration.
+
+    Aggregates all config sections. Every section has sensible defaults,
+    so ``UnifiedConfig()`` (zero-config) is always valid.
+    """
+
+    trac: TracConfig = Field(default_factory=TracConfig)
+    sync: dict[str, SyncProfileConfig] = Field(default_factory=dict)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    model_config = {"frozen": True}
+
+
+# ---------------------------------------------------------------------------
+# Factory function
+# ---------------------------------------------------------------------------
+
+
+def build_config(raw_data: dict) -> UnifiedConfig:
+    """Construct a ``UnifiedConfig`` from the raw dict returned by
+    ``load_hierarchical_config()``.
+
+    Handles missing sections gracefully — anything absent gets defaults.
+
+    Args:
+        raw_data: Merged configuration dictionary.
+
+    Returns:
+        Validated ``UnifiedConfig`` instance.
+    """
+    if not raw_data:
+        return UnifiedConfig()
+
+    return UnifiedConfig(**raw_data)
+
+
+# ---------------------------------------------------------------------------
+# Adapter: UnifiedConfig -> legacy Config dataclass
+# ---------------------------------------------------------------------------
+
+
+def to_legacy_config(
+    unified: UnifiedConfig,
+    cli_overrides: dict | None = None,
+) -> Config:
+    """Convert a ``UnifiedConfig`` into the existing ``Config`` dataclass,
+    applying CLI overrides on top.
+
+    The precedence applied here is:
+        CLI override > unified config value > None
+
+    CLI overrides dict keys: url, username, password, insecure, debug.
+
+    Args:
+        unified: The unified config produced by ``build_config()``.
+        cli_overrides: Optional dict of CLI argument values.
+
+    Returns:
+        Legacy ``Config`` dataclass instance (NOT validated — caller
+        should run ``validate_config()`` separately if needed).
+    """
+    # Import here to avoid circular imports (config.py imports config_schema)
+    from .config import Config
+
+    overrides = cli_overrides or {}
+
+    return Config(
+        trac_url=overrides.get("url") or unified.trac.url or "",
+        username=overrides.get("username")
+        or unified.trac.username
+        or "",
+        password=overrides.get("password")
+        or unified.trac.password
+        or "",
+        insecure=overrides.get("insecure", False)
+        or unified.trac.insecure,
+        debug=overrides.get("debug", False) or unified.trac.debug,
+        max_parallel_requests=unified.trac.max_parallel_requests,
+        max_batch_size=unified.trac.max_batch_size,
+    )
