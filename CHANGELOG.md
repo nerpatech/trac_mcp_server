@@ -15,7 +15,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Shared timestamp formatting utility (`format_timestamp`) with timezone-aware UTC
 - Shared constants module (`constants.py`) for tool handlers
 - Network timeout (10s connect, 60s read) on XML-RPC requests
-- 79 new tests covering sync merger, TracClient methods, error handlers, auto_convert, logger, and SyncReport properties (781 -> 860 tests)
+- 79 new tests covering TracClient methods, error handlers, auto_convert, and logger (781 -> 860 -> 641 after sync removal)
 - `CHANGELOG.md` version history extracted from planning documents
 
 ### Changed
@@ -34,6 +34,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `set_client()` signature to accept `TracClient | None` (removed type: ignore)
 - Dead code removal: duplicate `get_version()`, unused validator loop, stale imports
 - Live test configuration: `.env` now loaded in conftest for `TRAC_URL` availability
+
+### Removed
+- Sync subsystem: `doc_sync` and `doc_sync_status` MCP tools, `src/trac_mcp_server/sync/` module, and all sync-related tests (213 tests)
+- `scripts/test_trac.py` live test script and associated report
+- Sync config schema models (`SyncMappingRule`, `SyncProfileConfig`) and sync profile support in `UnifiedConfig`
 
 ## [2.1.0] - 2026-02-15
 
@@ -67,10 +72,9 @@ Post-extraction cleanup release. Hardens the standalone package after splitting 
 Initial standalone release. Extracted from trac_assist v1.3.2 as independent MCP server package.
 
 ### Added
-- 26 MCP tools (tickets, wiki, milestones, sync, system)
+- 24 MCP tools (tickets, wiki, milestones, system)
 - Wiki page resources via MCP resource protocol
 - Markdown to TracWiki bidirectional format conversion
-- Document sync with conflict detection
 - stdio transport for MCP client integration
 - Environment variable configuration (TRAC_URL, TRAC_USERNAME, TRAC_PASSWORD)
 - `trac-mcp-server` CLI entry point
