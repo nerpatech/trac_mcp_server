@@ -74,7 +74,7 @@ claude mcp add trac -e TRAC_URL=https://trac.example.com \
 
 Any MCP client that supports stdio transport can launch `trac-mcp-server` as a subprocess. Pass Trac credentials via environment variables.
 
-## Available Tools (29)
+## Available Tools (27)
 
 ### Tickets (11)
 | Tool | Description |
@@ -117,12 +117,6 @@ Any MCP client that supports stdio transport can launch `trac-mcp-server` as a s
 | `milestone_update` | Update existing milestones |
 | `milestone_delete` | Delete milestones |
 
-### Sync (2)
-| Tool | Description |
-|------|-------------|
-| `doc_sync` | Synchronize documents between local files and wiki |
-| `doc_sync_status` | Check sync status |
-
 ### System (2)
 | Tool | Description |
 |------|-------------|
@@ -144,7 +138,6 @@ src/trac_mcp_server/
   core/           # Trac XML-RPC client, async utilities
   mcp/            # MCP server, tools, resources
   converters/     # Markdown <-> TracWiki conversion
-  sync/           # Document synchronization
   detection/      # Content format detection
 ```
 

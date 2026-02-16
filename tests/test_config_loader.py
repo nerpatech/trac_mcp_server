@@ -505,7 +505,6 @@ class TestEnsureConfig:
             content = target.read_text()
             assert "# trac-mcp-server configuration" in content
             assert "# trac:" in content
-            assert "# sync:" in content
             assert "# logging:" in content
 
     def test_uses_explicit_target(self, tmp_path, monkeypatch):

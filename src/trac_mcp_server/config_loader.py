@@ -199,18 +199,6 @@ _STARTER_CONFIG = """\
 #   insecure: false
 #   max_parallel_requests: 5
 #
-# Sync profiles for bidirectional document sync:
-#
-# sync:
-#   planning:
-#     source: .planning
-#     destination: wiki
-#     format: auto
-#     direction: bidirectional
-#     mappings:
-#       - pattern: "phases/*/*.md"
-#         namespace: "Planning/Phases/{parent}/"
-#
 # logging:
 #   level: INFO
 #   file: null

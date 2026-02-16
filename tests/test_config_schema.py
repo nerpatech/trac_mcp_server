@@ -1,8 +1,8 @@
 """Comprehensive tests for unified config schema and adapter functions.
 
 Tests all Pydantic models in config_schema.py (UnifiedConfig, TracConfig,
-SyncProfileConfig, LoggingConfig), the build_config() factory, and the
-to_legacy_config() adapter function for backward compatibility.
+LoggingConfig), the build_config() factory, and the to_legacy_config()
+adapter function for backward compatibility.
 """
 
 import pytest
@@ -10,7 +10,6 @@ from pydantic import ValidationError
 
 from trac_mcp_server.config_schema import (
     LoggingConfig,
-    SyncProfileConfig,
     TracConfig,
     UnifiedConfig,
     build_config,
@@ -31,7 +30,6 @@ class TestUnifiedConfig:
         assert config.trac is not None
         assert config.trac.url is None
         assert config.trac.insecure is False
-        assert config.sync == {}
         assert config.logging is not None
         assert config.logging.level == "INFO"
 
@@ -45,19 +43,10 @@ class TestUnifiedConfig:
                 insecure=True,
                 debug=True,
             ),
-            sync={
-                "planning": SyncProfileConfig(
-                    source=".planning/",
-                    destination="wiki",
-                    format="tracwiki",
-                ),
-            },
             logging=LoggingConfig(level="DEBUG", file="/tmp/trac.log"),
         )
         assert config.trac.url == "https://trac.example.com"
         assert config.trac.insecure is True
-        assert "planning" in config.sync
-        assert config.sync["planning"].format == "tracwiki"
         assert config.logging.level == "DEBUG"
         assert config.logging.file == "/tmp/trac.log"
 
@@ -118,70 +107,6 @@ class TestTracConfig:
         config = TracConfig(url="https://trac.example.com")
         with pytest.raises(ValidationError):
             config.url = "https://changed.example.com"
-
-
-# ---------------------------------------------------------------------------
-# SyncProfileConfig tests
-# ---------------------------------------------------------------------------
-
-
-class TestSyncProfileConfig:
-    """Tests for SyncProfileConfig section model."""
-
-    def test_format_accepts_tracwiki(self):
-        """format accepts 'tracwiki'."""
-        config = SyncProfileConfig(
-            source=".planning/", destination="wiki", format="tracwiki"
-        )
-        assert config.format == "tracwiki"
-
-    def test_format_accepts_markdown(self):
-        """format accepts 'markdown'."""
-        config = SyncProfileConfig(
-            source=".planning/", destination="wiki", format="markdown"
-        )
-        assert config.format == "markdown"
-
-    def test_format_accepts_auto(self):
-        """format accepts 'auto'."""
-        config = SyncProfileConfig(
-            source=".planning/", destination="wiki", format="auto"
-        )
-        assert config.format == "auto"
-
-    def test_format_rejects_invalid_strings(self):
-        """format rejects invalid strings."""
-        with pytest.raises(ValidationError):
-            SyncProfileConfig(
-                source=".planning/",
-                destination="wiki",
-                format="html",  # type: ignore[arg-type]
-            )
-
-    def test_format_defaults_to_auto(self):
-        """format defaults to 'auto'."""
-        config = SyncProfileConfig(
-            source=".planning/", destination="wiki"
-        )
-        assert config.format == "auto"
-
-    def test_source_required(self):
-        """source is a required field."""
-        with pytest.raises(ValidationError):
-            SyncProfileConfig(destination="wiki")  # type: ignore[call-arg]
-
-    def test_destination_required(self):
-        """destination is a required field."""
-        with pytest.raises(ValidationError):
-            SyncProfileConfig(source=".planning/")  # type: ignore[call-arg]
-
-    def test_frozen_model(self):
-        """SyncProfileConfig is frozen (immutable)."""
-        config = SyncProfileConfig(
-            source=".planning/", destination="wiki"
-        )
-        with pytest.raises(ValidationError):
-            config.source = "/other/path"
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +258,6 @@ class TestBuildConfig:
         config = build_config({})
         assert isinstance(config, UnifiedConfig)
         assert config.trac.url is None
-        assert config.sync == {}
 
     def test_partial_sections_fill_defaults(self):
         """build_config with partial sections fills in defaults for missing."""
@@ -347,7 +271,6 @@ class TestBuildConfig:
         assert config.trac.username is None
         assert config.trac.insecure is False
         # Other sections get defaults
-        assert config.sync == {}
         assert config.logging.level == "INFO"
 
     def test_full_raw_dict(self):
@@ -358,17 +281,10 @@ class TestBuildConfig:
                 "username": "admin",
                 "password": "secret",
             },
-            "sync": {
-                "planning": {
-                    "source": ".planning/",
-                    "destination": "wiki",
-                },
-            },
             "logging": {"level": "DEBUG"},
         }
         config = build_config(raw)
         assert config.trac.url == "https://trac.example.com"
-        assert "planning" in config.sync
         assert config.logging.level == "DEBUG"
 
     def test_none_like_empty(self):

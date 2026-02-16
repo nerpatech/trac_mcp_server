@@ -2,11 +2,11 @@
 """
 Comprehensive MCP Tool Live Testing
 
-This script tests all 29 Trac MCP server tools against a live Trac server instance,
+This script tests all 27 Trac MCP server tools against a live Trac server instance,
 validating the complete MCP tool surface before release.
 
 Features:
-- Tests all 29 tools: ping + 8 ticket + 3 batch ticket + 6 wiki + 3 wiki_file + 5 milestone + 1 system + 2 sync
+- Tests all 27 tools: ping + 8 ticket + 3 batch ticket + 6 wiki + 3 wiki_file + 5 milestone + 1 system
 - Covers happy paths, error handling, and edge cases
 - Tests format conversions (Markdown <-> TracWiki)
 - Tests batch operations with parallel execution
@@ -31,7 +31,6 @@ from trac_mcp_server.config import Config, load_config
 from trac_mcp_server.core.async_utils import run_sync
 from trac_mcp_server.core.client import TracClient
 from trac_mcp_server.mcp.tools.milestone import handle_milestone_tool
-from trac_mcp_server.mcp.tools.sync import handle_sync_tool
 from trac_mcp_server.mcp.tools.system import handle_system_tool
 from trac_mcp_server.mcp.tools.ticket_batch import (
     handle_ticket_batch_tool,
@@ -143,8 +142,6 @@ class ComprehensiveMCPTester:
                     results = await handle_wiki_write_tool(tool_name, arguments, self.client)
             elif tool_name.startswith("milestone_"):
                 results = await handle_milestone_tool(tool_name, arguments, self.client)
-            elif tool_name.startswith("doc_sync"):
-                results = await handle_sync_tool(tool_name, arguments, self.client)
             else:
                 return False, f"Unknown tool: {tool_name}"
 
@@ -836,46 +833,6 @@ print('hello')
         else:
             self.test_milestone = None
 
-    async def test_sync_operations(self):
-        """Phase 3e: Test sync operations"""
-        print(f"\n{self._color('=== Phase 3e: Sync Operations ===')}")
-
-        # doc_sync_status - test with a non-existent profile (error handling)
-        _, response = await self._call_tool("doc_sync_status", {"profile": "nonexistent_test_profile"})
-        result = CheckResult(
-            tool="doc_sync_status",
-            test_name="nonexistent_profile",
-            passed="not_found" in response or "error" in response.lower() or "not found" in response.lower(),
-            response=response[:300],
-            notes="Expected error for non-existent sync profile",
-        )
-        self.report.results.append(result)
-        self._log_result(result)
-
-        # doc_sync_status - test missing required param
-        _, response = await self._call_tool("doc_sync_status", {})
-        result = CheckResult(
-            tool="doc_sync_status",
-            test_name="missing_profile_param",
-            passed="validation_error" in response or "required" in response.lower(),
-            response=response[:200],
-            notes="Expected validation error for missing profile",
-        )
-        self.report.results.append(result)
-        self._log_result(result)
-
-        # doc_sync - test with non-existent profile (error handling)
-        _, response = await self._call_tool("doc_sync", {"profile": "nonexistent_test_profile", "dry_run": True})
-        result = CheckResult(
-            tool="doc_sync",
-            test_name="nonexistent_profile_dry_run",
-            passed="not_found" in response or "error" in response.lower() or "not found" in response.lower(),
-            response=response[:300],
-            notes="Expected error for non-existent sync profile (dry_run)",
-        )
-        self.report.results.append(result)
-        self._log_result(result)
-
     async def test_ticket_batch_operations(self):
         """Phase 3f: Test batch ticket operations"""
         print(f"\n{self._color('=== Phase 3f: Batch Ticket Operations ===')}")
@@ -1282,7 +1239,6 @@ print('hello')
             "Wiki Tools": [],
             "Wiki File Tools": [],
             "Milestone Tools": [],
-            "Sync Tools": [],
             "Error Handling": [],
         }
 
@@ -1317,12 +1273,6 @@ print('hello')
                     results_by_category["Error Handling"].append(result)
                 else:
                     results_by_category["Milestone Tools"].append(result)
-            elif result.tool.startswith("doc_sync"):
-                if "nonexistent" in result.test_name or "missing_" in result.test_name:
-                    results_by_category["Error Handling"].append(result)
-                else:
-                    results_by_category["Sync Tools"].append(result)
-
         report_lines = [
             "# Comprehensive MCP Tool Test Report",
             "",
@@ -1333,7 +1283,7 @@ print('hello')
             "",
             "## Executive Summary",
             "",
-            f"- **Tools Tested:** {len(tools_tested)}/29",
+            f"- **Tools Tested:** {len(tools_tested)}/27",
             f"- **Total Scenarios:** {self.report.total}",
             f"- **Passed:** {self.report.passed}",
             f"- **Failed:** {self.report.failed}",
@@ -1412,7 +1362,6 @@ print('hello')
             await self.test_wiki_write_operations()
             await self.test_wiki_file_operations()
             await self.test_milestone_write_operations()
-            await self.test_sync_operations()
             await self.test_ticket_batch_operations()
 
             # Phase 4: Delete operations
