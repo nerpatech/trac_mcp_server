@@ -26,6 +26,8 @@ from typing import Optional
 # Import MCP tool handlers directly
 import mcp.types as types
 
+from dotenv import load_dotenv
+
 from trac_mcp_server import __version__ as PACKAGE_VERSION
 from trac_mcp_server.config import Config, load_config
 from trac_mcp_server.core.async_utils import run_sync
@@ -1412,6 +1414,7 @@ async def async_main(args):
     print(f"{'=' * 70}\n")
 
     try:
+        load_dotenv()
         config = load_config()
 
         # Override config with CLI arguments
