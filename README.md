@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/trac_mcp_server_banner_dark_1280.png" alt="trac-mcp-server banner" />
+</p>
+
 # trac-mcp-server
 
 Standalone MCP server that gives AI agents full access to Trac project management -- tickets, wiki, milestones, and search -- via the Model Context Protocol.
