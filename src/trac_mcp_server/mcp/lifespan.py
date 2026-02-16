@@ -6,7 +6,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from ..config import load_config
+from ..config import load_config, validate_config
+from ..config_loader import discover_config_files, load_hierarchical_config
+from ..config_schema import build_config, to_legacy_config
 from ..core.async_utils import init_semaphore, run_sync
 from ..core.client import TracClient
 
@@ -47,19 +49,40 @@ async def server_lifespan(
     _stderr_print("Trac MCP Server starting...")
 
     # Load configuration with optional overrides
+    # Precedence: CLI args > YAML config file > env vars > defaults
     try:
-        if config_overrides:
-            # Extract parameters load_config expects
+        # Check for YAML config files first
+        config_files = discover_config_files()
+        if config_files:
+            # Use hierarchical config pipeline (YAML + CLI overrides)
+            config_path = config_files[0]
+            raw = load_hierarchical_config()
+            unified = build_config(raw)
+            config = to_legacy_config(unified, cli_overrides=config_overrides)
+            validate_config(config)
+            logger.info(
+                "Configuration loaded from config file: %s", config_path
+            )
+            _stderr_print(
+                f"  Configuration loaded from config file: {config_path}"
+            )
+        elif config_overrides:
+            # No config files — use env vars with CLI overrides
             config = load_config(
                 url=config_overrides.get("url"),
                 username=config_overrides.get("username"),
                 password=config_overrides.get("password"),
                 insecure=config_overrides.get("insecure", False),
             )
+            logger.info("Configuration loaded from environment variables")
+            _stderr_print("  Configuration loaded from environment variables")
         else:
+            # No config files, no CLI overrides — pure env var mode
             config = load_config()
-        logger.info("Configuration loaded for %s", config.trac_url)
-        _stderr_print(f"  Configuration loaded for {config.trac_url}")
+            logger.info("Configuration loaded from environment variables")
+            _stderr_print("  Configuration loaded from environment variables")
+        logger.info("Trac URL: %s", config.trac_url)
+        _stderr_print(f"  Trac URL: {config.trac_url}")
     except ValueError as e:
         logger.error("Configuration error: %s", e)
         _stderr_print(f"ERROR: Configuration error: {e}")

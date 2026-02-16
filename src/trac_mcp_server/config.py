@@ -1,7 +1,7 @@
 """Simplified configuration for standalone MCP server.
 
-Reads Trac connection settings from environment variables only.
-No YAML config files, no hierarchical config, no config_loader/config_schema.
+Reads Trac connection settings from environment variables. For YAML config
+file support, see config_loader.py and config_schema.py.
 
 Environment variables:
     TRAC_URL: Trac instance URL (required)
