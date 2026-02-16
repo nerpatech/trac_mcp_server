@@ -40,7 +40,6 @@ from .tools import (
     handle_wiki_write_tool,
 )
 from .tools.milestone import MILESTONE_TOOLS, handle_milestone_tool
-from .tools.sync import SYNC_TOOLS, handle_sync_tool
 from .tools.system import SYSTEM_TOOLS, handle_system_tool
 from .tools.wiki_file import WIKI_FILE_TOOLS, handle_wiki_file_tool
 
@@ -105,7 +104,6 @@ async def handle_list_tools() -> list[types.Tool]:
         + WIKI_TOOLS
         + WIKI_FILE_TOOLS
         + MILESTONE_TOOLS
-        + SYNC_TOOLS
     )
 
 
@@ -226,9 +224,6 @@ async def handle_call_tool(
 
     elif name == "get_server_time":
         return await handle_system_tool(name, arguments, client)
-
-    elif name.startswith("doc_sync"):
-        return await handle_sync_tool(name, arguments, client)
 
     raise ValueError(f"Unknown tool: {name}")
 

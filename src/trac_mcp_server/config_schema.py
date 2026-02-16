@@ -1,8 +1,8 @@
 """Unified configuration schema for trac_mcp_server.
 
 Defines Pydantic models for the unified config structure with dedicated
-sections for Trac connection, named sync profiles, and logging. Includes
-adapter function for backward compatibility with existing Config dataclass.
+sections for Trac connection and logging. Includes adapter function for
+backward compatibility with existing Config dataclass.
 
 Usage:
     from trac_mcp_server.config_schema import (
@@ -17,9 +17,9 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from .config import Config
@@ -69,85 +69,6 @@ class TracConfig(BaseModel):
     model_config = {"frozen": True}
 
 
-class SyncMappingRule(BaseModel):
-    """A mapping rule that maps local file patterns to wiki namespaces.
-
-    Attributes:
-        pattern: Glob pattern to match local files (e.g. "phases/*/*.md").
-        namespace: Wiki namespace template (e.g. "Planning/Phases/{parent}/").
-        name_rules: Optional filename pattern to wiki name mapping overrides.
-    """
-
-    pattern: str = Field(
-        ..., description="Glob pattern to match local files"
-    )
-    namespace: str = Field(..., description="Wiki namespace template")
-    name_rules: dict[str, str] | None = Field(
-        default=None,
-        description="Filename pattern to wiki name mapping overrides",
-    )
-
-    model_config = {"frozen": True}
-
-
-class SyncProfileConfig(BaseModel):
-    """Named sync profile (e.g. planning, docs).
-
-    Attributes:
-        source: Source path or directory.
-        destination: Destination target (e.g. "wiki").
-        format: Output format for sync.
-        direction: Sync direction (push, pull, or bidirectional).
-        conflict_strategy: How to handle conflicts.
-        git_safety: Git dirty-state safety behavior.
-        mappings: Ordered list of mapping rules (first-match-wins).
-        exclude: Glob patterns to exclude from sync.
-        state_dir: Directory for sync state JSON files.
-    """
-
-    source: str = Field(..., description="Source path or directory")
-    destination: str = Field(..., description="Destination target")
-    format: Literal["tracwiki", "markdown", "auto"] = Field(
-        default="auto", description="Output format"
-    )
-    direction: Literal["push", "pull", "bidirectional"] = Field(
-        default="bidirectional", description="Sync direction"
-    )
-    conflict_strategy: Literal[
-        "interactive", "markers", "local-wins", "remote-wins"
-    ] = Field(
-        default="interactive", description="How to handle conflicts"
-    )
-    git_safety: Literal["block", "warn", "none"] = Field(
-        default="block", description="Git dirty-state safety behavior"
-    )
-    mappings: list[SyncMappingRule] = Field(
-        default_factory=list,
-        description="Ordered mapping rules (first-match-wins)",
-    )
-    exclude: list[str] = Field(
-        default_factory=list,
-        description="Glob patterns to exclude from sync",
-    )
-    state_dir: str = Field(
-        default=".trac_mcp",
-        description="Directory for sync state JSON files",
-    )
-
-    model_config = {"frozen": True}
-
-    @model_validator(mode="after")
-    def warn_empty_mappings(self) -> "SyncProfileConfig":
-        """Log a warning if mappings are empty."""
-        if not self.mappings:
-            logger.warning(
-                "SyncProfileConfig '%s' -> '%s' has no mappings; all files in source will map flat to destination.",
-                self.source,
-                self.destination,
-            )
-        return self
-
-
 class LoggingConfig(BaseModel):
     """Logging configuration.
 
@@ -177,7 +98,6 @@ class UnifiedConfig(BaseModel):
     """
 
     trac: TracConfig = Field(default_factory=TracConfig)
-    sync: dict[str, SyncProfileConfig] = Field(default_factory=dict)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     model_config = {"frozen": True}
