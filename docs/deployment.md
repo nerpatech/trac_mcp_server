@@ -76,7 +76,7 @@ This installs `trac-mcp-server` in an isolated environment, avoiding dependency 
 
 ## Configuration
 
-trac-mcp-server is configured via environment variables. There are no configuration files.
+trac-mcp-server supports three configuration sources: CLI flags, environment variables, and YAML config files. See [Configuration Reference](reference/configuration.md) for full details.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -88,11 +88,22 @@ trac-mcp-server is configured via environment variables. There are no configurat
 | `TRAC_MAX_PARALLEL_REQUESTS` | No | `5` | Max parallel XML-RPC requests |
 | `TRAC_MAX_BATCH_SIZE` | No | `500` | Max items per batch operation (1-10000) |
 
-For full details, see [Configuration Reference](reference/configuration.md).
+### Config File
+
+You can also configure trac-mcp-server with a YAML config file at `.trac_mcp/config.yml` in the working directory:
+
+```yaml
+trac:
+  url: https://trac.example.com
+  username: admin
+  password: secret
+```
+
+See [Configuration Reference](reference/configuration.md) for the full config file format and discovery order.
 
 ### .env File
 
-trac-mcp-server loads a `.env` file from the working directory via python-dotenv. This is useful for local development.
+trac-mcp-server loads a `.env` file from the working directory via python-dotenv. Values from `.env` sit between real shell env vars and config file values in precedence. You can use `.env` alongside a YAML config file.
 
 ```bash
 # .env

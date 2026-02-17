@@ -24,7 +24,7 @@ trac-mcp-server --version
 
 ### Configuration
 
-The primary configuration mechanism is environment variables. CLI flags override environment variables when both are set. See [Configuration](configuration.md) for full details.
+Configuration can come from YAML config files, environment variables, or CLI flags. CLI flags take highest precedence. See [Configuration](configuration.md) for details.
 
 ### How It Works
 

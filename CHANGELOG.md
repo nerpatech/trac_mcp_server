@@ -10,6 +10,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Batch ticket operations: `ticket_batch_create`, `ticket_batch_delete`, `ticket_batch_update` -- best-effort processing with per-item results and bounded parallelism via `gather_limited`
 - `TRAC_MAX_BATCH_SIZE` environment variable (default: 500, range: 1-10000) for controlling maximum items per batch operation
 - Config path resolution (`resolve_config_path()`) and bootstrapping (`ensure_config()`) utilities in config_loader.py
+- YAML config file support via `config_loader` and `config_schema` integration in server lifespan -- discovers `.trac_mcp/config.yaml` with hierarchical loading
+- Three-source configuration precedence: CLI arguments > environment variables > config file
+- 5 new tests for YAML config loading path in `test_lifespan.py`
 - Package version display in test script output
 - Shared error translation utility (`translate_xmlrpc_error`) consolidating 5 duplicate implementations
 - Shared timestamp formatting utility (`format_timestamp`) with timezone-aware UTC
@@ -21,6 +24,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - Modernized typing across all source files to Python 3.10+ style (`X | None` instead of `Optional[X]`, built-in generics)
 - Renamed `TRAC_ASSIST_CONFIG` env var to `TRAC_MCP_CONFIG` (backward compatible with deprecation warning)
+- Updated copyright from OpenCode to nerpa.tech in LICENSE and pyproject.toml
+- Added PyPI project URLs (Homepage, Repository, Issues, Changelog) to pyproject.toml
+- Updated all documentation (configuration, deployment, CLI, troubleshooting, README) to reflect YAML config file support
 - Unified `max_parallel_requests` default to 5 (was 2 in TracConfig)
 - Moved `max_batch_size` from standalone function to TracConfig field with Pydantic validation
 - Consolidated redundant wiki tool tests (457 -> 158 lines, 65% reduction)
@@ -32,6 +38,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Lazy logger formatting (`%s` instead of f-strings) in lifespan and system modules
 - `ConversionResult` type mismatch in wiki resources (was passing object as string)
 - `set_client()` signature to accept `TracClient | None` (removed type: ignore)
+- Removed License classifier conflicting with PEP 639 (`setuptools >= 77.0` derives it from `license = "MIT"`)
 - Dead code removal: duplicate `get_version()`, unused validator loop, stale imports
 - Live test configuration: `.env` now loaded in conftest for `TRAC_URL` availability
 

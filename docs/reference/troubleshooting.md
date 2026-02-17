@@ -133,16 +133,22 @@ Error (server_error): 404 Not Found: /login/rpc
 
 ## Debug Mode
 
-Enable debug mode for detailed logging by setting the `TRAC_DEBUG` environment variable:
+Enable debug mode for detailed logging using any of these methods:
 
+**Environment variable:**
 ```bash
 export TRAC_DEBUG=true
 ```
 
-Or add to your `.env` file:
-
+**`.env` file:**
 ```bash
 TRAC_DEBUG=true
+```
+
+**Config file (`.trac_mcp/config.yaml`):**
+```yaml
+logging:
+  level: DEBUG
 ```
 
 When enabled, the server writes detailed debug output to the log file.

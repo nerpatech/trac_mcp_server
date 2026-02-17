@@ -1,7 +1,10 @@
 """Simplified configuration for standalone MCP server.
 
-Reads Trac connection settings from environment variables only.
-No YAML config files, no hierarchical config, no config_loader/config_schema.
+Reads Trac connection settings from CLI args, environment variables,
+.env files, and YAML config file fallbacks.
+
+Precedence (highest to lowest):
+    CLI args > Environment variables > .env file > YAML config > Built-in defaults
 
 Environment variables:
     TRAC_URL: Trac instance URL (required)
@@ -16,8 +19,6 @@ import logging
 import os
 from dataclasses import dataclass
 from urllib.parse import urlparse
-
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -81,89 +82,123 @@ def load_config(
     password: str | None = None,
     insecure: bool = False,
     debug: bool = False,
+    yaml_fallbacks: dict | None = None,
 ) -> Config:
-    """Load configuration from CLI args and environment variables.
+    """Load configuration with unified precedence.
 
-    Priority: CLI args > Environment variables
+    Resolution order for each field (highest to lowest):
+        CLI arg > env var / .env > yaml_fallbacks > built-in default
+
+    The caller is responsible for calling ``load_dotenv()`` before this
+    function so that .env values are available via ``os.getenv()``.
 
     Args:
-        url: Override Trac URL (takes precedence over TRAC_URL env var).
-        username: Override username (takes precedence over TRAC_USERNAME env var).
-        password: Override password (takes precedence over TRAC_PASSWORD env var).
-        insecure: Skip SSL verification.
-        debug: Enable debug logging.
+        url: Override Trac URL (takes precedence over env var and YAML).
+        username: Override username (takes precedence over env var and YAML).
+        password: Override password (takes precedence over env var and YAML).
+        insecure: Skip SSL verification (CLI flag).
+        debug: Enable debug logging (CLI flag).
+        yaml_fallbacks: Dict of values from YAML config file ``trac`` section.
+            Used as fallback when CLI arg and env var are both unset.
 
     Returns:
         Validated Config instance.
 
     Raises:
-        ValueError: If required config (URL, username, password) is missing.
+        ValueError: If required config (URL, username, password) is missing
+            after checking all sources.
     """
-    # Load .env file if present
-    load_dotenv()
+    fb = yaml_fallbacks or {}
 
-    trac_url = url or os.getenv("TRAC_URL")
+    # --- String fields: CLI > env > YAML > error ---
+
+    trac_url = url or os.getenv("TRAC_URL") or fb.get("url")
     if not trac_url:
         raise ValueError(
-            "Trac URL not found. Set TRAC_URL environment variable or pass --url CLI argument."
+            "Trac URL not found. Set TRAC_URL environment variable, "
+            "pass --url CLI argument, or add 'url' to config.yaml."
         )
-
-    # Strip whitespace from URL (trailing slash stripped in validate_config)
     trac_url = trac_url.strip()
 
-    trac_username = username or os.getenv("TRAC_USERNAME")
+    trac_username = username or os.getenv("TRAC_USERNAME") or fb.get("username")
     if not trac_username:
         raise ValueError(
-            "Trac username not found. Set TRAC_USERNAME environment variable or pass --username CLI argument."
+            "Trac username not found. Set TRAC_USERNAME environment variable, "
+            "pass --username CLI argument, or add 'username' to config.yaml."
         )
-
-    # Strip whitespace from username
     trac_username = trac_username.strip()
 
-    trac_password = password or os.getenv("TRAC_PASSWORD")
+    trac_password = password or os.getenv("TRAC_PASSWORD") or fb.get("password")
     if not trac_password:
         raise ValueError(
-            "Trac password not found. Set TRAC_PASSWORD environment variable or pass --password CLI argument."
+            "Trac password not found. Set TRAC_PASSWORD environment variable, "
+            "pass --password CLI argument, or add 'password' to config.yaml."
         )
-
-    # Strip whitespace from password
     trac_password = trac_password.strip()
 
-    # Boolean env var parsing
-    def get_bool_env(key: str, default: bool = False) -> bool:
+    # --- Boolean fields: CLI > env > YAML > default ---
+
+    def get_bool_env(key: str) -> bool | None:
+        """Return True/False from env var, or None if unset."""
         val = os.getenv(key)
         if val is None:
-            return default
+            return None
         return val.lower() in ("true", "1", "yes", "on")
 
-    final_insecure = insecure or get_bool_env("TRAC_INSECURE")
-    final_debug = debug or get_bool_env("TRAC_DEBUG")
+    if insecure:
+        final_insecure = True
+    else:
+        env_insecure = get_bool_env("TRAC_INSECURE")
+        if env_insecure is not None:
+            final_insecure = env_insecure
+        else:
+            final_insecure = bool(fb.get("insecure", False))
 
-    # Parse and validate max_parallel_requests with bounds checking
-    max_parallel_raw = os.getenv("TRAC_MAX_PARALLEL_REQUESTS", "5")
-    try:
-        final_max_parallel = int(max_parallel_raw)
-    except ValueError:
-        raise ValueError(
-            f"Invalid TRAC_MAX_PARALLEL_REQUESTS '{max_parallel_raw}': must be a number between 1 and 100"
-        ) from None
-    if not (1 <= final_max_parallel <= 100):
-        raise ValueError(
-            f"Invalid TRAC_MAX_PARALLEL_REQUESTS '{max_parallel_raw}': must be a number between 1 and 100"
-        )
+    if debug:
+        final_debug = True
+    else:
+        env_debug = get_bool_env("TRAC_DEBUG")
+        if env_debug is not None:
+            final_debug = env_debug
+        else:
+            final_debug = bool(fb.get("debug", False))
 
-    # Parse and validate max_batch_size with bounds checking
-    max_batch_raw = os.getenv("TRAC_MAX_BATCH_SIZE", "500")
-    try:
-        final_max_batch = int(max_batch_raw)
-    except ValueError:
-        raise ValueError(
-            f"Invalid TRAC_MAX_BATCH_SIZE '{max_batch_raw}': must be a number between 1 and 10000"
-        ) from None
-    if not (1 <= final_max_batch <= 10000):
-        raise ValueError(
-            f"Invalid TRAC_MAX_BATCH_SIZE '{max_batch_raw}': must be a number between 1 and 10000"
-        )
+    # --- Numeric fields: env > YAML > default ---
+    # (No CLI args for numeric fields currently)
+
+    max_parallel_raw = os.getenv("TRAC_MAX_PARALLEL_REQUESTS")
+    if max_parallel_raw is not None:
+        try:
+            final_max_parallel = int(max_parallel_raw)
+        except ValueError:
+            raise ValueError(
+                f"Invalid TRAC_MAX_PARALLEL_REQUESTS '{max_parallel_raw}': must be a number between 1 and 100"
+            ) from None
+        if not (1 <= final_max_parallel <= 100):
+            raise ValueError(
+                f"Invalid TRAC_MAX_PARALLEL_REQUESTS '{max_parallel_raw}': must be a number between 1 and 100"
+            )
+    elif "max_parallel_requests" in fb:
+        final_max_parallel = int(fb["max_parallel_requests"])
+    else:
+        final_max_parallel = 5
+
+    max_batch_raw = os.getenv("TRAC_MAX_BATCH_SIZE")
+    if max_batch_raw is not None:
+        try:
+            final_max_batch = int(max_batch_raw)
+        except ValueError:
+            raise ValueError(
+                f"Invalid TRAC_MAX_BATCH_SIZE '{max_batch_raw}': must be a number between 1 and 10000"
+            ) from None
+        if not (1 <= final_max_batch <= 10000):
+            raise ValueError(
+                f"Invalid TRAC_MAX_BATCH_SIZE '{max_batch_raw}': must be a number between 1 and 10000"
+            )
+    elif "max_batch_size" in fb:
+        final_max_batch = int(fb["max_batch_size"])
+    else:
+        final_max_batch = 500
 
     config = Config(
         trac_url=trac_url,

@@ -6,7 +6,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from dotenv import load_dotenv
+
 from ..config import load_config
+from ..config_loader import discover_config_files, load_hierarchical_config
+from ..config_schema import build_config
 from ..core.async_utils import init_semaphore, run_sync
 from ..core.client import TracClient
 
@@ -26,7 +30,9 @@ async def server_lifespan(
     Manage server startup and shutdown lifecycle.
 
     On startup:
-    - Load configuration from environment (with optional CLI overrides)
+    - Load .env file (so values are available for env var lookups and YAML interpolation)
+    - Load YAML config file if present (as fallback values)
+    - Merge all sources via load_config(): CLI > env vars > .env > YAML > defaults
     - Create TracClient and validate connection
     - Fail fast if Trac is unreachable
 
@@ -46,20 +52,49 @@ async def server_lifespan(
     logger.info("MCP server starting...")
     _stderr_print("Trac MCP Server starting...")
 
-    # Load configuration with optional overrides
+    # Load configuration with unified precedence:
+    # CLI args > env vars (.env loaded first) > YAML config > defaults
     try:
-        if config_overrides:
-            # Extract parameters load_config expects
-            config = load_config(
-                url=config_overrides.get("url"),
-                username=config_overrides.get("username"),
-                password=config_overrides.get("password"),
-                insecure=config_overrides.get("insecure", False),
-            )
-        else:
-            config = load_config()
-        logger.info("Configuration loaded for %s", config.trac_url)
-        _stderr_print(f"  Configuration loaded for {config.trac_url}")
+        # 1. Load .env early (before YAML, so ${VAR} interpolation can use .env values)
+        load_dotenv()
+
+        # 2. Load YAML config if present, extract trac section as fallbacks
+        yaml_fallbacks: dict[str, Any] | None = None
+        config_files = discover_config_files()
+        sources = []
+
+        if config_files:
+            config_path = config_files[0]
+            raw = load_hierarchical_config()
+            unified = build_config(raw)
+            # Extract non-None trac values as fallbacks
+            yaml_fallbacks = {
+                k: v
+                for k, v in unified.trac.model_dump().items()
+                if v is not None
+            }
+            sources.append(f"config file: {config_path}")
+
+        # 3. Single call to load_config with all sources merged
+        overrides = config_overrides or {}
+        config = load_config(
+            url=overrides.get("url"),
+            username=overrides.get("username"),
+            password=overrides.get("password"),
+            insecure=overrides.get("insecure", False),
+            debug=overrides.get("debug", False),
+            yaml_fallbacks=yaml_fallbacks,
+        )
+
+        # Log which sources contributed
+        if overrides:
+            sources.append("CLI arguments")
+        sources.append("environment variables")
+        source_desc = ", ".join(sources) if sources else "defaults"
+        logger.info("Configuration loaded from: %s", source_desc)
+        _stderr_print(f"  Configuration loaded from: {source_desc}")
+        logger.info("Trac URL: %s", config.trac_url)
+        _stderr_print(f"  Trac URL: {config.trac_url}")
     except ValueError as e:
         logger.error("Configuration error: %s", e)
         _stderr_print(f"ERROR: Configuration error: {e}")
