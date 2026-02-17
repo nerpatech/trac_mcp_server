@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 from trac_mcp_server.logger import JsonFormatter, setup_logging
 
-
 # ---------------------------------------------------------------------------
 # setup_logging tests
 # ---------------------------------------------------------------------------
@@ -133,7 +132,9 @@ class TestSetupLogging:
         assert kwargs["filename"] == "/tmp/trac-mcp-server.log"
 
     @patch("trac_mcp_server.logger.logging.basicConfig")
-    def test_mcp_default_level_is_warning(self, mock_basic, monkeypatch):
+    def test_mcp_default_level_is_warning(
+        self, mock_basic, monkeypatch
+    ):
         """MCP mode defaults to WARNING level."""
         monkeypatch.delenv("LOG_LEVEL", raising=False)
         setup_logging(mode="mcp")

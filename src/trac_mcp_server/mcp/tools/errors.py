@@ -118,9 +118,9 @@ def translate_xmlrpc_error(
                 entity_name=entity_name
             )
         elif entity_name and domain == "wiki":
-            action = msgs.get("not_found_named", msgs["not_found"]).format(
-                entity_name=entity_name
-            )
+            action = msgs.get(
+                "not_found_named", msgs["not_found"]
+            ).format(entity_name=entity_name)
         else:
             action = msgs["not_found"]
         return build_error_response(

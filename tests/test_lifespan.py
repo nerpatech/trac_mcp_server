@@ -22,7 +22,8 @@ from trac_mcp_server.mcp.lifespan import server_lifespan
 
 # Shorthand patches used across many tests
 _NO_CONFIG_FILES = patch(
-    "trac_mcp_server.mcp.lifespan.discover_config_files", return_value=[]
+    "trac_mcp_server.mcp.lifespan.discover_config_files",
+    return_value=[],
 )
 _MOCK_DOTENV = patch("trac_mcp_server.mcp.lifespan.load_dotenv")
 
@@ -186,7 +187,9 @@ class TestServerLifespanSuccess:
 class TestServerLifespanYamlConfig:
     """Tests for loading config from .trac_mcp/config.yml via unified flow."""
 
-    async def test_yaml_config_passes_fallbacks_to_load_config(self, tmp_path):
+    async def test_yaml_config_passes_fallbacks_to_load_config(
+        self, tmp_path
+    ):
         """When YAML file exists, load_config receives yaml_fallbacks dict."""
         config_dir = tmp_path / ".trac_mcp"
         config_dir.mkdir()
@@ -323,7 +326,9 @@ class TestServerLifespanYamlConfig:
         )
 
         mock_client = MagicMock()
-        config = _make_config(trac_url="https://cli-override.example.com")
+        config = _make_config(
+            trac_url="https://cli-override.example.com"
+        )
         overrides = {"url": "https://cli-override.example.com"}
 
         with (
@@ -364,9 +369,14 @@ class TestServerLifespanYamlConfig:
         call_kwargs = mock_load.call_args.kwargs
         assert call_kwargs["url"] == "https://cli-override.example.com"
         # YAML fallbacks also passed
-        assert call_kwargs["yaml_fallbacks"]["url"] == "https://yaml-trac.example.com"
+        assert (
+            call_kwargs["yaml_fallbacks"]["url"]
+            == "https://yaml-trac.example.com"
+        )
 
-    async def test_yaml_config_stderr_mentions_config_file(self, tmp_path):
+    async def test_yaml_config_stderr_mentions_config_file(
+        self, tmp_path
+    ):
         """Stderr output should mention the config file path."""
         config_dir = tmp_path / ".trac_mcp"
         config_dir.mkdir()
@@ -462,7 +472,9 @@ class TestServerLifespanYamlConfig:
         config_dir = tmp_path / ".trac_mcp"
         config_dir.mkdir()
         config_file = config_dir / "config.yml"
-        config_file.write_text("trac:\n  url: https://yaml.example.com\n")
+        config_file.write_text(
+            "trac:\n  url: https://yaml.example.com\n"
+        )
 
         mock_client = MagicMock()
         config = _make_config()

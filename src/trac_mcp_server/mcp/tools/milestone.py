@@ -447,5 +447,3 @@ def _format_date(date_value: Any) -> str:
         return date_value.strftime("%Y-%m-%dT%H:%M:%S")
 
     return str(date_value)
-
-

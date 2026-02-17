@@ -35,17 +35,23 @@ class TestBuildErrorResponse:
 
     def test_returns_call_tool_result(self):
         """Returns a CallToolResult instance."""
-        result = build_error_response("not_found", "Not found", "Try again")
+        result = build_error_response(
+            "not_found", "Not found", "Try again"
+        )
         assert isinstance(result, types.CallToolResult)
 
     def test_is_error_flag(self):
         """isError is set to True."""
-        result = build_error_response("not_found", "Not found", "Try again")
+        result = build_error_response(
+            "not_found", "Not found", "Try again"
+        )
         assert result.isError is True
 
     def test_single_text_content(self):
         """Result contains a single TextContent."""
-        result = build_error_response("not_found", "Not found", "Try again")
+        result = build_error_response(
+            "not_found", "Not found", "Try again"
+        )
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
         assert result.content[0].type == "text"
@@ -57,7 +63,10 @@ class TestBuildErrorResponse:
         )
         content = result.content[0]
         assert isinstance(content, types.TextContent)
-        assert content.text == "Error (not_found): Page missing\n\nAction: Use wiki_search"
+        assert (
+            content.text
+            == "Error (not_found): Page missing\n\nAction: Use wiki_search"
+        )
 
     def test_permission_denied_type(self):
         """permission_denied error type renders correctly."""
@@ -105,7 +114,9 @@ class TestTranslateXmlrpcError:
 
         text = _get_error_text(result)
         assert "not_found" in text
-        assert "ticket_search" in text.lower() or "ticket" in text.lower()
+        assert (
+            "ticket_search" in text.lower() or "ticket" in text.lower()
+        )
 
     def test_not_found_wiki(self):
         """Wiki not found without entity name — mentions wiki_search."""
@@ -119,7 +130,9 @@ class TestTranslateXmlrpcError:
     def test_not_found_wiki_with_entity_name(self):
         """Wiki not found with entity name — includes page name in suggestion."""
         fault = xmlrpc.client.Fault(1, "Page 'MyPage' not found")
-        result = translate_xmlrpc_error(fault, "wiki", entity_name="MyPage")
+        result = translate_xmlrpc_error(
+            fault, "wiki", entity_name="MyPage"
+        )
 
         text = _get_error_text(result)
         assert "not_found" in text
@@ -127,7 +140,9 @@ class TestTranslateXmlrpcError:
 
     def test_permission_denied(self):
         """Permission denied by keyword — returns permission_denied."""
-        fault = xmlrpc.client.Fault(403, "Permission denied for this resource")
+        fault = xmlrpc.client.Fault(
+            403, "Permission denied for this resource"
+        )
         result = translate_xmlrpc_error(fault, "ticket")
 
         text = _get_error_text(result)
@@ -144,7 +159,9 @@ class TestTranslateXmlrpcError:
 
     def test_milestone_already_exists(self):
         """Milestone already exists — returns already_exists."""
-        fault = xmlrpc.client.Fault(1, "Milestone 'v1.0' already exists")
+        fault = xmlrpc.client.Fault(
+            1, "Milestone 'v1.0' already exists"
+        )
         result = translate_xmlrpc_error(fault, "milestone")
 
         text = _get_error_text(result)
@@ -162,7 +179,9 @@ class TestTranslateXmlrpcError:
     def test_version_conflict_with_entity(self):
         """Version conflict with entity name — substitutes name in action."""
         fault = xmlrpc.client.Fault(1, "Page version conflict")
-        result = translate_xmlrpc_error(fault, "wiki", entity_name="TestPage")
+        result = translate_xmlrpc_error(
+            fault, "wiki", entity_name="TestPage"
+        )
 
         text = _get_error_text(result)
         assert "version_conflict" in text
@@ -170,7 +189,9 @@ class TestTranslateXmlrpcError:
 
     def test_generic_fault_falls_back_to_server_error(self):
         """Unknown fault string — falls back to server_error."""
-        fault = xmlrpc.client.Fault(500, "Something completely unexpected happened")
+        fault = xmlrpc.client.Fault(
+            500, "Something completely unexpected happened"
+        )
         result = translate_xmlrpc_error(fault, "ticket")
 
         text = _get_error_text(result)
@@ -184,7 +205,9 @@ class TestTranslateXmlrpcError:
         text = _get_error_text(result)
         assert "not_found" in text
         # Ticket's not_found action: "Use ticket_search..."
-        assert "ticket_search" in text.lower() or "ticket" in text.lower()
+        assert (
+            "ticket_search" in text.lower() or "ticket" in text.lower()
+        )
 
 
 # ---------------------------------------------------------------------------

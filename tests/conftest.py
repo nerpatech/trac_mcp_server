@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 import pytest
 from dotenv import load_dotenv
 
-load_dotenv()
-
 from trac_mcp_server.config import Config
+
+load_dotenv()
 
 
 def pytest_addoption(parser):

@@ -596,5 +596,3 @@ async def _handle_actions(
         ],
         structuredContent={"actions": actions_json},
     )
-
-

@@ -120,7 +120,9 @@ def load_config(
         )
     trac_url = trac_url.strip()
 
-    trac_username = username or os.getenv("TRAC_USERNAME") or fb.get("username")
+    trac_username = (
+        username or os.getenv("TRAC_USERNAME") or fb.get("username")
+    )
     if not trac_username:
         raise ValueError(
             "Trac username not found. Set TRAC_USERNAME environment variable, "
@@ -128,7 +130,9 @@ def load_config(
         )
     trac_username = trac_username.strip()
 
-    trac_password = password or os.getenv("TRAC_PASSWORD") or fb.get("password")
+    trac_password = (
+        password or os.getenv("TRAC_PASSWORD") or fb.get("password")
+    )
     if not trac_password:
         raise ValueError(
             "Trac password not found. Set TRAC_PASSWORD environment variable, "

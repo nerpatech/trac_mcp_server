@@ -582,9 +582,7 @@ class TestLoadConfigWithYamlFallbacks:
         monkeypatch.setenv("TRAC_PASSWORD", "pass")
         monkeypatch.delenv("TRAC_INSECURE", raising=False)
 
-        config = load_config(
-            yaml_fallbacks={"insecure": True}
-        )
+        config = load_config(yaml_fallbacks={"insecure": True})
         assert config.insecure is True
 
     def test_boolean_env_overrides_yaml_insecure(self, monkeypatch):
@@ -594,9 +592,7 @@ class TestLoadConfigWithYamlFallbacks:
         monkeypatch.setenv("TRAC_PASSWORD", "pass")
         monkeypatch.setenv("TRAC_INSECURE", "false")
 
-        config = load_config(
-            yaml_fallbacks={"insecure": True}
-        )
+        config = load_config(yaml_fallbacks={"insecure": True})
         assert config.insecure is False
 
     def test_empty_yaml_fallbacks_same_as_none(self, monkeypatch):
@@ -610,7 +606,10 @@ class TestLoadConfigWithYamlFallbacks:
 
         assert config_with_empty.trac_url == config_with_none.trac_url
         assert config_with_empty.username == config_with_none.username
-        assert config_with_empty.max_parallel_requests == config_with_none.max_parallel_requests
+        assert (
+            config_with_empty.max_parallel_requests
+            == config_with_none.max_parallel_requests
+        )
 
     def test_max_batch_size_fallback(self, monkeypatch):
         """max_batch_size uses YAML fallback when env var unset."""
@@ -619,7 +618,5 @@ class TestLoadConfigWithYamlFallbacks:
         monkeypatch.setenv("TRAC_PASSWORD", "pass")
         monkeypatch.delenv("TRAC_MAX_BATCH_SIZE", raising=False)
 
-        config = load_config(
-            yaml_fallbacks={"max_batch_size": 1000}
-        )
+        config = load_config(yaml_fallbacks={"max_batch_size": 1000})
         assert config.max_batch_size == 1000

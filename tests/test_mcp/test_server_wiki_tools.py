@@ -20,7 +20,6 @@ from trac_mcp_server.mcp.server import (
     handle_list_tools,
 )
 
-
 # ---------------------------------------------------------------------------
 # Registration tests — verify tool schemas
 # ---------------------------------------------------------------------------

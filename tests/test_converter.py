@@ -1109,14 +1109,20 @@ class TestAutoConvert(unittest.TestCase):
 
         return asyncio.run(coro)
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_explicit_tracwiki_target(self, mock_caps):
         """target_format='tracwiki' with markdown input converts to tracwiki."""
         from trac_mcp_server.converters.common import auto_convert
 
         mock_config = MagicMock()
         result = self._run(
-            auto_convert("# Heading\n\nParagraph", mock_config, target_format="tracwiki")
+            auto_convert(
+                "# Heading\n\nParagraph",
+                mock_config,
+                target_format="tracwiki",
+            )
         )
 
         self.assertTrue(result.converted)
@@ -1125,14 +1131,20 @@ class TestAutoConvert(unittest.TestCase):
         # Capabilities should not be queried when target is explicit
         mock_caps.assert_not_called()
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_explicit_markdown_target(self, mock_caps):
         """target_format='markdown' with tracwiki input converts to markdown."""
         from trac_mcp_server.converters.common import auto_convert
 
         mock_config = MagicMock()
         result = self._run(
-            auto_convert("= Heading =\n\nParagraph", mock_config, target_format="markdown")
+            auto_convert(
+                "= Heading =\n\nParagraph",
+                mock_config,
+                target_format="markdown",
+            )
         )
 
         self.assertTrue(result.converted)
@@ -1140,7 +1152,9 @@ class TestAutoConvert(unittest.TestCase):
         self.assertIn("# Heading", result.text)
         mock_caps.assert_not_called()
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_same_format_passthrough_markdown(self, _mock_caps):
         """target_format='markdown' with markdown input — no conversion."""
         from trac_mcp_server.converters.common import auto_convert
@@ -1154,7 +1168,9 @@ class TestAutoConvert(unittest.TestCase):
         self.assertFalse(result.converted)
         self.assertEqual(result.text, text)
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_auto_detect_with_markdown_processor(self, mock_caps):
         """target_format=None, server has markdown processor — target becomes 'markdown'."""
         from trac_mcp_server.converters.common import auto_convert
@@ -1170,13 +1186,17 @@ class TestAutoConvert(unittest.TestCase):
 
         # TracWiki input should be converted to markdown
         result = self._run(
-            auto_convert("= Heading =\n\nText", mock_config, target_format=None)
+            auto_convert(
+                "= Heading =\n\nText", mock_config, target_format=None
+            )
         )
 
         self.assertEqual(result.target_format, "markdown")
         mock_caps.assert_called_once_with(mock_config)
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_auto_detect_without_markdown_processor(self, mock_caps):
         """target_format=None, no markdown processor — target becomes 'tracwiki'."""
         from trac_mcp_server.converters.common import auto_convert
@@ -1192,13 +1212,19 @@ class TestAutoConvert(unittest.TestCase):
 
         # Markdown input should be converted to tracwiki
         result = self._run(
-            auto_convert("# Heading\n\nText", mock_config, target_format=None)
+            auto_convert(
+                "# Heading\n\nText", mock_config, target_format=None
+            )
         )
 
         self.assertEqual(result.target_format, "tracwiki")
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
-    def test_capability_detection_failure_defaults_tracwiki(self, mock_caps):
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
+    def test_capability_detection_failure_defaults_tracwiki(
+        self, mock_caps
+    ):
         """target_format=None, capability detection raises — defaults to 'tracwiki'."""
         from trac_mcp_server.converters.common import auto_convert
 
@@ -1210,13 +1236,17 @@ class TestAutoConvert(unittest.TestCase):
         mock_caps.side_effect = raise_error
 
         result = self._run(
-            auto_convert("# Heading\n\nText", mock_config, target_format=None)
+            auto_convert(
+                "# Heading\n\nText", mock_config, target_format=None
+            )
         )
 
         self.assertEqual(result.target_format, "tracwiki")
         self.assertTrue(result.converted)
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_same_format_passthrough_tracwiki(self, _mock_caps):
         """target_format='tracwiki' with tracwiki input — no conversion."""
         from trac_mcp_server.converters.common import auto_convert
@@ -1230,14 +1260,18 @@ class TestAutoConvert(unittest.TestCase):
         self.assertFalse(result.converted)
         self.assertEqual(result.text, text)
 
-    @patch("trac_mcp_server.detection.capabilities.get_server_capabilities")
+    @patch(
+        "trac_mcp_server.detection.capabilities.get_server_capabilities"
+    )
     def test_returns_conversion_result(self, _mock_caps):
         """Return type is ConversionResult with all expected fields."""
         from trac_mcp_server.converters.common import auto_convert
 
         mock_config = MagicMock()
         result = self._run(
-            auto_convert("# Test", mock_config, target_format="tracwiki")
+            auto_convert(
+                "# Test", mock_config, target_format="tracwiki"
+            )
         )
 
         self.assertIsInstance(result, ConversionResult)

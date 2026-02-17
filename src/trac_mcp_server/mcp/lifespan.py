@@ -9,7 +9,10 @@ from typing import Any
 from dotenv import load_dotenv
 
 from ..config import load_config
-from ..config_loader import discover_config_files, load_hierarchical_config
+from ..config_loader import (
+    discover_config_files,
+    load_hierarchical_config,
+)
 from ..config_schema import build_config
 from ..core.async_utils import init_semaphore, run_sync
 from ..core.client import TracClient

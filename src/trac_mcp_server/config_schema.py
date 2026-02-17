@@ -39,9 +39,7 @@ class TracConfig(BaseModel):
     can supply them at runtime instead.
     """
 
-    url: str | None = Field(
-        default=None, description="Trac server URL"
-    )
+    url: str | None = Field(default=None, description="Trac server URL")
     username: str | None = Field(
         default=None, description="Trac username"
     )
@@ -78,9 +76,7 @@ class LoggingConfig(BaseModel):
     """
 
     level: str = Field(default="INFO", description="Log level")
-    file: str | None = Field(
-        default=None, description="Log file path"
-    )
+    file: str | None = Field(default=None, description="Log file path")
 
     model_config = {"frozen": True}
 

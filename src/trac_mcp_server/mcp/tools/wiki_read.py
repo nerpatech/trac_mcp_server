@@ -179,9 +179,7 @@ async def handle_wiki_read_tool(
                 raise ValueError(f"Unknown wiki read tool: {name}")
 
     except xmlrpc.client.Fault as e:
-        return translate_xmlrpc_error(
-            e, "wiki", args.get("page_name")
-        )
+        return translate_xmlrpc_error(e, "wiki", args.get("page_name"))
     except ValueError as e:
         return build_error_response(
             "validation_error",
@@ -472,5 +470,3 @@ async def _handle_recent_changes(
             "since_days": since_days,
         },
     )
-
-

@@ -196,9 +196,7 @@ class TestHandleBatchCreate(unittest.TestCase):
             for i in range(3)
         ]
         result = asyncio.run(
-            _handle_batch_create(
-                self.mock_client, {"tickets": tickets}
-            )
+            _handle_batch_create(self.mock_client, {"tickets": tickets})
         )
 
         self.assertIsInstance(result, types.CallToolResult)
