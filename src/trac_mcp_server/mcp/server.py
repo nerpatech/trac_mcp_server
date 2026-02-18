@@ -166,66 +166,76 @@ async def handle_call_tool(
     # Get the shared TracClient instance
     client = get_client()
 
-    if name == "ping":
-        try:
-            version = await run_sync(client.validate_connection)
-            return types.CallToolResult(
-                content=[
-                    types.TextContent(
-                        type="text",
-                        text=f"Trac MCP server connected successfully. API version: {version}",
-                    )
-                ]
-            )
-        except Exception as e:
-            return types.CallToolResult(
-                content=[
-                    types.TextContent(
-                        type="text",
-                        text=f"Trac connection failed: {e}. Check TRAC_URL, TRAC_USERNAME, TRAC_PASSWORD.",
-                    )
-                ],
-                isError=True,
-            )
+    match name:
+        case "ping":
+            try:
+                version = await run_sync(client.validate_connection)
+                return types.CallToolResult(
+                    content=[
+                        types.TextContent(
+                            type="text",
+                            text=f"Trac MCP server connected successfully. API version: {version}",
+                        )
+                    ]
+                )
+            except Exception as e:
+                return types.CallToolResult(
+                    content=[
+                        types.TextContent(
+                            type="text",
+                            text=f"Trac connection failed: {e}. Check TRAC_URL, TRAC_USERNAME, TRAC_PASSWORD.",
+                        )
+                    ],
+                    isError=True,
+                )
 
-    elif name.startswith("ticket_"):
-        # Route to read, batch, or write handler based on tool name
-        if name in (
-            "ticket_search",
-            "ticket_get",
-            "ticket_changelog",
-            "ticket_fields",
-            "ticket_actions",
-        ):
-            return await handle_ticket_read_tool(
-                name, arguments, client
-            )
-        elif name.startswith("ticket_batch_"):
-            return await handle_ticket_batch_tool(
-                name, arguments, client
-            )
-        else:
-            return await handle_ticket_write_tool(
-                name, arguments, client
-            )
+        case _ if name.startswith("ticket_"):
+            # Route to read, batch, or write handler based on tool name
+            if name in (
+                "ticket_search",
+                "ticket_get",
+                "ticket_changelog",
+                "ticket_fields",
+                "ticket_actions",
+            ):
+                return await handle_ticket_read_tool(
+                    name, arguments, client
+                )
+            elif name.startswith("ticket_batch_"):
+                return await handle_ticket_batch_tool(
+                    name, arguments, client
+                )
+            else:
+                return await handle_ticket_write_tool(
+                    name, arguments, client
+                )
 
-    elif name.startswith("wiki_file_"):
-        return await handle_wiki_file_tool(name, arguments, client)
+        case _ if name.startswith("wiki_file_"):
+            return await handle_wiki_file_tool(name, arguments, client)
 
-    elif name.startswith("wiki_"):
-        # Route to read or write handler based on tool name
-        if name in ("wiki_get", "wiki_search", "wiki_recent_changes"):
-            return await handle_wiki_read_tool(name, arguments, client)
-        else:
-            return await handle_wiki_write_tool(name, arguments, client)
+        case _ if name.startswith("wiki_"):
+            # Route to read or write handler based on tool name
+            if name in (
+                "wiki_get",
+                "wiki_search",
+                "wiki_recent_changes",
+            ):
+                return await handle_wiki_read_tool(
+                    name, arguments, client
+                )
+            else:
+                return await handle_wiki_write_tool(
+                    name, arguments, client
+                )
 
-    elif name.startswith("milestone_"):
-        return await handle_milestone_tool(name, arguments, client)
+        case _ if name.startswith("milestone_"):
+            return await handle_milestone_tool(name, arguments, client)
 
-    elif name == "get_server_time":
-        return await handle_system_tool(name, arguments, client)
+        case "get_server_time":
+            return await handle_system_tool(name, arguments, client)
 
-    raise ValueError(f"Unknown tool: {name}")
+        case _:
+            raise ValueError(f"Unknown tool: {name}")
 
 
 async def main(config_overrides: dict | None = None):

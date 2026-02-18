@@ -429,21 +429,15 @@ def _format_date(date_value: Any) -> str:
     Returns:
         Formatted date string or "(Not set)"
     """
-    if date_value == 0 or date_value is None:
-        return "(Not set)"
-
-    # Handle DateTime object
-    if isinstance(date_value, xmlrpc.client.DateTime):
-        # DateTime.value is a string in ISO 8601 format
-        return date_value.value
-
-    # Handle Unix timestamp
-    if isinstance(date_value, (int, float)):
-        dt = datetime.fromtimestamp(date_value)
-        return dt.strftime("%Y-%m-%dT%H:%M:%S")
-
-    # Handle datetime object
-    if isinstance(date_value, datetime):
-        return date_value.strftime("%Y-%m-%dT%H:%M:%S")
-
-    return str(date_value)
+    match date_value:
+        case 0 | None:
+            return "(Not set)"
+        case xmlrpc.client.DateTime() as dt_val:
+            return dt_val.value
+        case int() | float() as ts:
+            dt = datetime.fromtimestamp(ts)
+            return dt.strftime("%Y-%m-%dT%H:%M:%S")
+        case datetime() as dt:
+            return dt.strftime("%Y-%m-%dT%H:%M:%S")
+        case _:
+            return str(date_value)
