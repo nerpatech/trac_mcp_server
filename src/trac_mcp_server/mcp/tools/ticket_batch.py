@@ -17,6 +17,7 @@ from ...core.async_utils import gather_limited, run_sync_limited
 from ...core.client import TracClient
 from .constants import DEFAULT_TICKET_TYPE
 from .errors import build_error_response
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -407,3 +408,23 @@ async def _handle_batch_update(
             "failed_count": len(failed),
         },
     )
+
+
+# ToolSpec list for registry-based dispatch
+TICKET_BATCH_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=TICKET_BATCH_TOOLS[0],
+        permissions=frozenset({"TICKET_CREATE", "TICKET_BATCH_MODIFY"}),
+        handler=_handle_batch_create,
+    ),
+    ToolSpec(
+        tool=TICKET_BATCH_TOOLS[1],
+        permissions=frozenset({"TICKET_ADMIN", "TICKET_BATCH_MODIFY"}),
+        handler=_handle_batch_delete,
+    ),
+    ToolSpec(
+        tool=TICKET_BATCH_TOOLS[2],
+        permissions=frozenset({"TICKET_MODIFY", "TICKET_BATCH_MODIFY"}),
+        handler=_handle_batch_update,
+    ),
+]

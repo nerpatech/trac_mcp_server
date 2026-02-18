@@ -14,6 +14,7 @@ from ...converters.common import auto_convert
 from ...core.async_utils import run_sync
 from ...core.client import TracClient
 from .errors import build_error_response, translate_xmlrpc_error
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -358,3 +359,23 @@ async def _handle_delete(
             )
         ]
     )
+
+
+# ToolSpec list for registry-based dispatch
+WIKI_WRITE_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=WIKI_WRITE_TOOLS[0],
+        permissions=frozenset({"WIKI_CREATE"}),
+        handler=_handle_create,
+    ),
+    ToolSpec(
+        tool=WIKI_WRITE_TOOLS[1],
+        permissions=frozenset({"WIKI_MODIFY"}),
+        handler=_handle_update,
+    ),
+    ToolSpec(
+        tool=WIKI_WRITE_TOOLS[2],
+        permissions=frozenset({"WIKI_DELETE"}),
+        handler=_handle_delete,
+    ),
+]

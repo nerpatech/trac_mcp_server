@@ -15,6 +15,7 @@ from ...core.async_utils import run_sync
 from ...core.client import TracClient
 from .constants import DEFAULT_TICKET_TYPE, TICKET_TYPE_LIST
 from .errors import build_error_response, translate_xmlrpc_error
+from .registry import ToolSpec
 
 
 def _build_ticket_create_tool() -> types.Tool:
@@ -344,3 +345,23 @@ async def _handle_delete(
             )
         ]
     )
+
+
+# ToolSpec list for registry-based dispatch
+TICKET_WRITE_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=TICKET_WRITE_TOOLS[0],
+        permissions=frozenset({"TICKET_CREATE"}),
+        handler=_handle_create,
+    ),
+    ToolSpec(
+        tool=TICKET_WRITE_TOOLS[1],
+        permissions=frozenset({"TICKET_MODIFY"}),
+        handler=_handle_update,
+    ),
+    ToolSpec(
+        tool=TICKET_WRITE_TOOLS[2],
+        permissions=frozenset({"TICKET_ADMIN"}),
+        handler=_handle_delete,
+    ),
+]

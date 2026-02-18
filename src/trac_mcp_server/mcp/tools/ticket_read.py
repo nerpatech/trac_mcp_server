@@ -22,6 +22,7 @@ from .errors import (
     format_timestamp,
     translate_xmlrpc_error,
 )
+from .registry import ToolSpec
 
 # Tool definitions for list_tools()
 TICKET_READ_TOOLS = [
@@ -143,7 +144,7 @@ async def handle_ticket_read_tool(
             case "ticket_changelog":
                 return await _handle_changelog(client, args)
             case "ticket_fields":
-                return await _handle_fields(client)
+                return await _handle_fields(client, args)
             case "ticket_actions":
                 return await _handle_actions(client, args)
             case _:
@@ -433,7 +434,9 @@ async def _handle_changelog(
     )
 
 
-async def _handle_fields(client: TracClient) -> types.CallToolResult:
+async def _handle_fields(
+    client: TracClient, args: dict
+) -> types.CallToolResult:
     """Handle ticket_fields."""
     # Get field metadata
     fields = await run_sync(client.get_ticket_fields)
@@ -596,3 +599,33 @@ async def _handle_actions(
         ],
         structuredContent={"actions": actions_json},
     )
+
+
+# ToolSpec list for registry-based dispatch
+TICKET_READ_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=TICKET_READ_TOOLS[0],
+        permissions=frozenset({"TICKET_VIEW"}),
+        handler=_handle_search,
+    ),
+    ToolSpec(
+        tool=TICKET_READ_TOOLS[1],
+        permissions=frozenset({"TICKET_VIEW"}),
+        handler=_handle_get,
+    ),
+    ToolSpec(
+        tool=TICKET_READ_TOOLS[2],
+        permissions=frozenset({"TICKET_VIEW"}),
+        handler=_handle_changelog,
+    ),
+    ToolSpec(
+        tool=TICKET_READ_TOOLS[3],
+        permissions=frozenset({"TICKET_VIEW"}),
+        handler=_handle_fields,
+    ),
+    ToolSpec(
+        tool=TICKET_READ_TOOLS[4],
+        permissions=frozenset({"TICKET_VIEW"}),
+        handler=_handle_actions,
+    ),
+]

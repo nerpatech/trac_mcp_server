@@ -23,6 +23,7 @@ from ...file_handler import (
     write_file,
 )
 from .errors import build_error_response
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -163,11 +164,11 @@ async def handle_wiki_file_tool(
     try:
         match name:
             case "wiki_file_push":
-                return await _handle_push(args, client)
+                return await _handle_push(client, args)
             case "wiki_file_pull":
-                return await _handle_pull(args, client)
+                return await _handle_pull(client, args)
             case "wiki_file_detect_format":
-                return await _handle_detect_format(args)
+                return await _handle_detect_format(client, args)
             case _:
                 raise ValueError(f"Unknown wiki_file tool: {name}")
 
@@ -192,7 +193,7 @@ async def handle_wiki_file_tool(
 
 
 async def _handle_push(
-    args: dict[str, Any], client: TracClient
+    client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:
     """Handle wiki_file_push.
 
@@ -326,7 +327,7 @@ async def _handle_push(
 
 
 async def _handle_pull(
-    args: dict[str, Any], client: TracClient
+    client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:
     """Handle wiki_file_pull.
 
@@ -415,7 +416,7 @@ async def _handle_pull(
 
 
 async def _handle_detect_format(
-    args: dict[str, Any],
+    client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:
     """Handle wiki_file_detect_format.
 
@@ -449,3 +450,23 @@ async def _handle_detect_format(
         content=[types.TextContent(type="text", text=text)],
         structuredContent=structured,
     )
+
+
+# ToolSpec list for registry-based dispatch
+WIKI_FILE_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=WIKI_FILE_TOOLS[0],
+        permissions=frozenset({"WIKI_CREATE", "WIKI_MODIFY"}),
+        handler=_handle_push,
+    ),
+    ToolSpec(
+        tool=WIKI_FILE_TOOLS[1],
+        permissions=frozenset({"WIKI_VIEW"}),
+        handler=_handle_pull,
+    ),
+    ToolSpec(
+        tool=WIKI_FILE_TOOLS[2],
+        permissions=frozenset(),
+        handler=_handle_detect_format,
+    ),
+]

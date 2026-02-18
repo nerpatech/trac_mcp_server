@@ -22,6 +22,7 @@ from .errors import (
     format_timestamp,
     translate_xmlrpc_error,
 )
+from .registry import ToolSpec
 
 # Tool definitions for list_tools()
 WIKI_READ_TOOLS = [
@@ -470,3 +471,23 @@ async def _handle_recent_changes(
             "since_days": since_days,
         },
     )
+
+
+# ToolSpec list for registry-based dispatch
+WIKI_READ_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=WIKI_READ_TOOLS[0],
+        permissions=frozenset({"WIKI_VIEW"}),
+        handler=_handle_get,
+    ),
+    ToolSpec(
+        tool=WIKI_READ_TOOLS[1],
+        permissions=frozenset({"WIKI_VIEW"}),
+        handler=_handle_search,
+    ),
+    ToolSpec(
+        tool=WIKI_READ_TOOLS[2],
+        permissions=frozenset({"WIKI_VIEW"}),
+        handler=_handle_recent_changes,
+    ),
+]

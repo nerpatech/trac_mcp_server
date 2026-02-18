@@ -13,6 +13,7 @@ import mcp.types as types
 from ...core.async_utils import run_sync
 from ...core.client import TracClient
 from .errors import build_error_response
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -130,3 +131,13 @@ async def _handle_get_server_time(
             f"Failed to get server time: {str(e)}",
             "Check Trac server connectivity and permissions.",
         )
+
+
+# ToolSpec list for registry-based dispatch
+SYSTEM_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=SYSTEM_TOOLS[0],
+        permissions=frozenset(),
+        handler=_handle_get_server_time,
+    ),
+]

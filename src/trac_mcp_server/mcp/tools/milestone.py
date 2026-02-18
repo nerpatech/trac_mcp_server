@@ -16,6 +16,7 @@ from ...converters import tracwiki_to_markdown
 from ...core.async_utils import run_sync
 from ...core.client import TracClient
 from .errors import build_error_response, translate_xmlrpc_error
+from .registry import ToolSpec
 
 # Tool definitions for list_tools()
 MILESTONE_TOOLS = [
@@ -150,7 +151,7 @@ async def handle_milestone_tool(
     try:
         match name:
             case "milestone_list":
-                return await _handle_list(client)
+                return await _handle_list(client, args)
             case "milestone_get":
                 return await _handle_get(client, args)
             case "milestone_create":
@@ -178,7 +179,9 @@ async def handle_milestone_tool(
         )
 
 
-async def _handle_list(client: TracClient) -> types.CallToolResult:
+async def _handle_list(
+    client: TracClient, args: dict
+) -> types.CallToolResult:
     """Handle milestone_list."""
     milestones = await run_sync(client.get_all_milestones)
 
@@ -441,3 +444,33 @@ def _format_date(date_value: Any) -> str:
             return dt.strftime("%Y-%m-%dT%H:%M:%S")
         case _:
             return str(date_value)
+
+
+# ToolSpec list for registry-based dispatch
+MILESTONE_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=MILESTONE_TOOLS[0],
+        permissions=frozenset({"MILESTONE_VIEW"}),
+        handler=_handle_list,
+    ),
+    ToolSpec(
+        tool=MILESTONE_TOOLS[1],
+        permissions=frozenset({"MILESTONE_VIEW"}),
+        handler=_handle_get,
+    ),
+    ToolSpec(
+        tool=MILESTONE_TOOLS[2],
+        permissions=frozenset({"MILESTONE_CREATE"}),
+        handler=_handle_create,
+    ),
+    ToolSpec(
+        tool=MILESTONE_TOOLS[3],
+        permissions=frozenset({"MILESTONE_MODIFY"}),
+        handler=_handle_update,
+    ),
+    ToolSpec(
+        tool=MILESTONE_TOOLS[4],
+        permissions=frozenset({"MILESTONE_DELETE"}),
+        handler=_handle_delete,
+    ),
+]
