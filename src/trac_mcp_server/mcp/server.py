@@ -30,18 +30,8 @@ from .resources.wiki import (
     handle_list_wiki_resources,
     handle_read_wiki_resource,
 )
-from .tools import (
-    TICKET_TOOLS,
-    WIKI_TOOLS,
-    handle_ticket_batch_tool,
-    handle_ticket_read_tool,
-    handle_ticket_write_tool,
-    handle_wiki_read_tool,
-    handle_wiki_write_tool,
-)
-from .tools.milestone import MILESTONE_TOOLS, handle_milestone_tool
-from .tools.system import SYSTEM_TOOLS, handle_system_tool
-from .tools.wiki_file import WIKI_FILE_TOOLS, handle_wiki_file_tool
+from .tools import ALL_SPECS, ToolRegistry, load_permissions_file
+from .tools.registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +41,58 @@ server = Server("trac-mcp-server")
 # Global client instance (initialized in lifespan)
 _trac_client: TracClient | None = None
 
+# Global registry instance (initialized in main)
+_registry: ToolRegistry | None = None
+
+
+# ---------------------------------------------------------------------------
+# Ping tool (always available, no Trac permission required)
+# ---------------------------------------------------------------------------
+
+async def _handle_ping(
+    client: TracClient, args: dict
+) -> types.CallToolResult:
+    """Handle ping tool -- test Trac connectivity."""
+    try:
+        version = await run_sync(client.validate_connection)
+        return types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text",
+                    text=f"Trac MCP server connected successfully. API version: {version}",
+                )
+            ]
+        )
+    except Exception as e:
+        return types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text",
+                    text=f"Trac connection failed: {e}. Check TRAC_URL, TRAC_USERNAME, TRAC_PASSWORD.",
+                )
+            ],
+            isError=True,
+        )
+
+
+PING_SPEC = ToolSpec(
+    tool=types.Tool(
+        name="ping",
+        description="Test Trac MCP server connectivity and return API version",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    permissions=frozenset(),
+    handler=_handle_ping,
+)
+
+
+# ---------------------------------------------------------------------------
+# Global accessors (same pattern as _trac_client)
+# ---------------------------------------------------------------------------
 
 def get_client() -> TracClient:
     """Get the global TracClient instance.
@@ -78,33 +120,41 @@ def set_client(client: TracClient | None) -> None:
     _trac_client = client
 
 
+def get_registry() -> ToolRegistry:
+    """Get the global ToolRegistry instance.
+
+    Returns:
+        ToolRegistry instance
+
+    Raises:
+        RuntimeError: If registry is not initialized
+    """
+    if _registry is None:
+        raise RuntimeError("ToolRegistry not initialized.")
+    return _registry
+
+
+def set_registry(registry: ToolRegistry | None) -> None:
+    """Set the global ToolRegistry instance.
+
+    Args:
+        registry: ToolRegistry instance to set, or None to clear
+    """
+    global _registry
+    _registry = registry
+
+
+# ---------------------------------------------------------------------------
+# MCP protocol handlers
+# ---------------------------------------------------------------------------
+
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
     """List available Trac tools.
 
-    Returns all registered tools including trac_ping for connectivity testing,
-    all ticket tools (search, get, create, update, changelog, fields),
-    wiki tools (get, search, create, update), and milestone tools
-    (list, get, create, update, delete).
+    Returns all registered (and permitted) tools from the ToolRegistry.
     """
-    return (
-        [
-            types.Tool(
-                name="ping",
-                description="Test Trac MCP server connectivity and return API version",
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            )
-        ]
-        + SYSTEM_TOOLS
-        + TICKET_TOOLS
-        + WIKI_TOOLS
-        + WIKI_FILE_TOOLS
-        + MILESTONE_TOOLS
-    )
+    return get_registry().list_tools()
 
 
 @server.list_resources()
@@ -151,7 +201,7 @@ async def handle_read_resource(uri: Url) -> str:
 async def handle_call_tool(
     name: str, arguments: dict | None
 ) -> types.CallToolResult:
-    """Handle tool execution.
+    """Handle tool execution via ToolRegistry dispatch.
 
     Args:
         name: The name of the tool to execute.
@@ -161,82 +211,15 @@ async def handle_call_tool(
         CallToolResult with tool output content and optional isError flag.
 
     Raises:
-        ValueError: If the tool name is unknown.
+        ValueError: If the tool name is unknown or filtered out by permissions.
     """
-    # Get the shared TracClient instance
     client = get_client()
+    return await get_registry().call_tool(name, arguments, client)
 
-    match name:
-        case "ping":
-            try:
-                version = await run_sync(client.validate_connection)
-                return types.CallToolResult(
-                    content=[
-                        types.TextContent(
-                            type="text",
-                            text=f"Trac MCP server connected successfully. API version: {version}",
-                        )
-                    ]
-                )
-            except Exception as e:
-                return types.CallToolResult(
-                    content=[
-                        types.TextContent(
-                            type="text",
-                            text=f"Trac connection failed: {e}. Check TRAC_URL, TRAC_USERNAME, TRAC_PASSWORD.",
-                        )
-                    ],
-                    isError=True,
-                )
 
-        case _ if name.startswith("ticket_"):
-            # Route to read, batch, or write handler based on tool name
-            if name in (
-                "ticket_search",
-                "ticket_get",
-                "ticket_changelog",
-                "ticket_fields",
-                "ticket_actions",
-            ):
-                return await handle_ticket_read_tool(
-                    name, arguments, client
-                )
-            elif name.startswith("ticket_batch_"):
-                return await handle_ticket_batch_tool(
-                    name, arguments, client
-                )
-            else:
-                return await handle_ticket_write_tool(
-                    name, arguments, client
-                )
-
-        case _ if name.startswith("wiki_file_"):
-            return await handle_wiki_file_tool(name, arguments, client)
-
-        case _ if name.startswith("wiki_"):
-            # Route to read or write handler based on tool name
-            if name in (
-                "wiki_get",
-                "wiki_search",
-                "wiki_recent_changes",
-            ):
-                return await handle_wiki_read_tool(
-                    name, arguments, client
-                )
-            else:
-                return await handle_wiki_write_tool(
-                    name, arguments, client
-                )
-
-        case _ if name.startswith("milestone_"):
-            return await handle_milestone_tool(name, arguments, client)
-
-        case "get_server_time":
-            return await handle_system_tool(name, arguments, client)
-
-        case _:
-            raise ValueError(f"Unknown tool: {name}")
-
+# ---------------------------------------------------------------------------
+# Server lifecycle
+# ---------------------------------------------------------------------------
 
 async def main(config_overrides: dict | None = None):
     """Run the MCP server with stdio transport.
@@ -262,9 +245,41 @@ async def main(config_overrides: dict | None = None):
     is_consistent, message = check_version_consistency()
     if not is_consistent:
         logger.warning(message)
-        sys.stderr.write(f"⚠️  Warning: {message}\n")
+        sys.stderr.write(f"\u26a0\ufe0f  Warning: {message}\n")
     else:
         logger.info(message)
+
+    # Build ToolRegistry with optional permission filtering
+    permissions_file = (
+        config_overrides.get("permissions_file")
+        if config_overrides
+        else None
+    )
+    allowed_permissions = None
+    if permissions_file:
+        allowed_permissions = load_permissions_file(permissions_file)
+        logger.info(
+            "Loaded %d permissions from %s",
+            len(allowed_permissions),
+            permissions_file,
+        )
+
+    all_specs = [PING_SPEC] + ALL_SPECS
+    registry = ToolRegistry(all_specs, allowed_permissions)
+    logger.info(
+        "Registered %d tools (of %d total)",
+        registry.tool_count(),
+        len(all_specs),
+    )
+
+    if permissions_file:
+        print(
+            f"Permissions file: {permissions_file} "
+            f"({registry.tool_count()} of {len(all_specs)} tools enabled)",
+            file=sys.stderr,
+        )
+
+    set_registry(registry)
 
     # Use lifespan manager for startup validation with config overrides.
     # NOTE: We call set_client() directly here rather than in the lifespan
@@ -295,6 +310,7 @@ async def main(config_overrides: dict | None = None):
                 )
         finally:
             set_client(None)
+            set_registry(None)
 
 
 def run() -> None:
@@ -319,6 +335,9 @@ Examples:
   # Custom log file location
   trac-mcp-server --log-file /var/log/trac-mcp-server.log
 
+  # Restrict tools by Trac permissions
+  trac-mcp-server --permissions-file /etc/trac-mcp/read-only.permissions
+
 Note: This server uses stdio transport for JSON-RPC communication with MCP clients.
 All user-facing messages are written to stderr. Do not pipe stdin/stdout manually.
         """,
@@ -335,7 +354,7 @@ All user-facing messages are written to stderr. Do not pipe stdin/stdout manuall
     parser.add_argument(
         "--password",
         help="Override Trac password (takes precedence over TRAC_PASSWORD env var and config files)"
-        " (visible in process list — prefer TRAC_PASSWORD env var for security)",
+        " (visible in process list -- prefer TRAC_PASSWORD env var for security)",
     )
     parser.add_argument(
         "--insecure",
@@ -346,6 +365,12 @@ All user-facing messages are written to stderr. Do not pipe stdin/stdout manuall
         "--log-file",
         default="/tmp/trac-mcp-server.log",
         help="Log file path (default: /tmp/trac-mcp-server.log)",
+    )
+    parser.add_argument(
+        "--permissions-file",
+        help="Path to permissions file restricting available tools. "
+        "Format: one Trac permission per line (e.g., TICKET_VIEW), # for comments. "
+        "If not specified, all tools are available.",
     )
     parser.add_argument(
         "--version",
@@ -367,6 +392,8 @@ All user-facing messages are written to stderr. Do not pipe stdin/stdout manuall
         config_overrides["insecure"] = True
     if args.log_file:
         config_overrides["log_file"] = args.log_file
+    if args.permissions_file:
+        config_overrides["permissions_file"] = args.permissions_file
 
     # Log config overrides to stderr (before stdio transport starts)
     if config_overrides:
