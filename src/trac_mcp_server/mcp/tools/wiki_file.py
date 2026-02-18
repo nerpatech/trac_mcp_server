@@ -161,14 +161,15 @@ async def handle_wiki_file_tool(
     args = arguments or {}
 
     try:
-        if name == "wiki_file_push":
-            return await _handle_push(args, client)
-        elif name == "wiki_file_pull":
-            return await _handle_pull(args, client)
-        elif name == "wiki_file_detect_format":
-            return await _handle_detect_format(args)
-        else:
-            raise ValueError(f"Unknown wiki_file tool: {name}")
+        match name:
+            case "wiki_file_push":
+                return await _handle_push(args, client)
+            case "wiki_file_pull":
+                return await _handle_pull(args, client)
+            case "wiki_file_detect_format":
+                return await _handle_detect_format(args)
+            case _:
+                raise ValueError(f"Unknown wiki_file tool: {name}")
 
     except NotImplementedError as e:
         return build_error_response(

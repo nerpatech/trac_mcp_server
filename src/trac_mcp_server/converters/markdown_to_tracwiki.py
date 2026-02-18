@@ -221,29 +221,32 @@ class TracWikiRenderer(mistune.BaseRenderer):
             # Handle empty cells
             if not text:
                 cell_content = ""
-            elif align == "left":
-                cell_content = f"={text} ="
-            elif align == "right":
-                cell_content = f"= {text}="
-            elif align == "center":
-                cell_content = f"= {text} ="
             else:
-                # No alignment: minimal spacing
-                cell_content = f"={text}="
+                match align:
+                    case "left":
+                        cell_content = f"={text} ="
+                    case "right":
+                        cell_content = f"= {text}="
+                    case "center":
+                        cell_content = f"= {text} ="
+                    case _:
+                        # No alignment: minimal spacing
+                        cell_content = f"={text}="
         else:
             # Apply TracWiki alignment via whitespace for body cells
-            if align == "left":
-                # Left aligned: text flush left, space on right
-                cell_content = f"{text} "
-            elif align == "right":
-                # Right aligned: space on left, text flush right
-                cell_content = f" {text}"
-            elif align == "center":
-                # Centered: space on both sides
-                cell_content = f" {text} "
-            else:
-                # No alignment: just the text
-                cell_content = text
+            match align:
+                case "left":
+                    # Left aligned: text flush left, space on right
+                    cell_content = f"{text} "
+                case "right":
+                    # Right aligned: space on left, text flush right
+                    cell_content = f" {text}"
+                case "center":
+                    # Centered: space on both sides
+                    cell_content = f" {text} "
+                case _:
+                    # No alignment: just the text
+                    cell_content = text
 
         # Add || separator after cell (will be concatenated with next cell)
         return cell_content + "||"
@@ -255,127 +258,128 @@ class TracWikiRenderer(mistune.BaseRenderer):
         func = self._get_method(token_type)
         attrs = token.get("attrs")
 
-        # For lists, track ordered state and reset item counter
-        if token_type == "list":
-            ordered = token.get("attrs", {}).get("ordered", False)
-            depth = getattr(
-                state, "list_depth", -1
-            )  # Start at -1 so first level is 0
+        match token_type:
+            # For lists, track ordered state and reset item counter
+            case "list":
+                ordered = token.get("attrs", {}).get("ordered", False)
+                depth = getattr(
+                    state, "list_depth", -1
+                )  # Start at -1 so first level is 0
 
-            # Save current state
-            old_ordered = getattr(state, "list_ordered", False)
-            old_depth = depth
-            old_item_num = getattr(state, "list_item_num", 0)
+                # Save current state
+                old_ordered = getattr(state, "list_ordered", False)
+                old_depth = depth
+                old_item_num = getattr(state, "list_item_num", 0)
 
-            # Set new state
-            state.list_ordered = ordered  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
-            state.list_depth = depth + 1  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
-            state.list_item_num = 0  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
+                # Set new state
+                state.list_ordered = ordered  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
+                state.list_depth = depth + 1  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
+                state.list_item_num = 0  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
 
-            # Render children
-            if "children" in token:
-                text = self.render_tokens(token["children"], state)
-            else:
-                text = ""
-
-            # Restore state
-            state.list_ordered = old_ordered  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
-            state.list_depth = old_depth  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
-            state.list_item_num = old_item_num  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
-
-            # Call list renderer with text and ordered flag
-            if attrs:
-                return func(text, **attrs)
-            else:
-                return func(text, False)
-
-        # For list items, we need to determine depth and type
-        elif token_type == "list_item":
-            # Track list depth from state
-            depth = getattr(state, "list_depth", 0)
-
-            # Check if parent list is ordered
-            ordered = getattr(state, "list_ordered", False)
-
-            # Increment and get item number
-            item_num = getattr(state, "list_item_num", 0) + 1
-            state.list_item_num = item_num  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
-
-            # Determine marker
-            if ordered:
-                marker = f"{item_num}."
-            else:
-                marker = "*"
-
-            # Render children - check if there's a nested list
-            if "children" in token:
-                children = token["children"]
-                # Separate inline content from nested lists
-                inline_parts = []
-                nested_lists = []
-
-                for child in children:
-                    if child.get("type") == "list":
-                        nested_lists.append(child)
-                    else:
-                        inline_parts.append(child)
-
-                # Render inline content
-                if inline_parts:
-                    text = self.render_tokens(inline_parts, state)
+                # Render children
+                if "children" in token:
+                    text = self.render_tokens(token["children"], state)
                 else:
                     text = ""
 
-                # Render nested lists (they handle their own newlines)
-                if nested_lists:
-                    nested_text = self.render_tokens(
-                        nested_lists, state
-                    )
-                    # The nested list adds its items directly, don't add to text
-                    nested_text = nested_text.rstrip("\n")
-                else:
-                    nested_text = ""
-            else:
-                text = token.get("raw", "")
-                nested_text = ""
+                # Restore state
+                state.list_ordered = old_ordered  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
+                state.list_depth = old_depth  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
+                state.list_item_num = old_item_num  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
 
-            # Build TracWiki list item with proper depth
-            # TracWiki uses indentation for nesting: 1 space for level 0, +2 spaces per level
-            # Depth 0: " * item" (1 space + marker)
-            # Depth 1: "   * item" (3 spaces + marker)
-            # Depth 2: "     * item" (5 spaces + marker)
-            indent = " " * (depth * 2 + 1)
-            prefix = f"{indent}{marker}"
-
-            text = text.rstrip("\n")
-
-            # Combine text and nested list
-            if nested_text:
-                return f"{prefix} {text}\n{nested_text}\n"
-            else:
-                return f"{prefix} {text}\n"
-
-        # Default rendering: extract text from raw, text, or children, pass attrs
-        else:
-            if "raw" in token:
-                text = token["raw"]
-            elif "text" in token:
-                # Used by table_cell tokens
-                text = token["text"]
-            elif "children" in token:
-                text = self.render_tokens(token["children"], state)
-            else:
-                # No text content, just call with attrs
+                # Call list renderer with text and ordered flag
                 if attrs:
-                    return func(**attrs)
+                    return func(text, **attrs)
                 else:
-                    return func()
+                    return func(text, False)
 
-            # Call function with text and attrs
-            if attrs:
-                return func(text, **attrs)
-            else:
-                return func(text)
+            # For list items, we need to determine depth and type
+            case "list_item":
+                # Track list depth from state
+                depth = getattr(state, "list_depth", 0)
+
+                # Check if parent list is ordered
+                ordered = getattr(state, "list_ordered", False)
+
+                # Increment and get item number
+                item_num = getattr(state, "list_item_num", 0) + 1
+                state.list_item_num = item_num  # type: ignore[attr-defined]  # mistune BlockState dynamic attr
+
+                # Determine marker
+                if ordered:
+                    marker = f"{item_num}."
+                else:
+                    marker = "*"
+
+                # Render children - check if there's a nested list
+                if "children" in token:
+                    children = token["children"]
+                    # Separate inline content from nested lists
+                    inline_parts = []
+                    nested_lists = []
+
+                    for child in children:
+                        if child.get("type") == "list":
+                            nested_lists.append(child)
+                        else:
+                            inline_parts.append(child)
+
+                    # Render inline content
+                    if inline_parts:
+                        text = self.render_tokens(inline_parts, state)
+                    else:
+                        text = ""
+
+                    # Render nested lists (they handle their own newlines)
+                    if nested_lists:
+                        nested_text = self.render_tokens(
+                            nested_lists, state
+                        )
+                        # The nested list adds its items directly, don't add to text
+                        nested_text = nested_text.rstrip("\n")
+                    else:
+                        nested_text = ""
+                else:
+                    text = token.get("raw", "")
+                    nested_text = ""
+
+                # Build TracWiki list item with proper depth
+                # TracWiki uses indentation for nesting: 1 space for level 0, +2 spaces per level
+                # Depth 0: " * item" (1 space + marker)
+                # Depth 1: "   * item" (3 spaces + marker)
+                # Depth 2: "     * item" (5 spaces + marker)
+                indent = " " * (depth * 2 + 1)
+                prefix = f"{indent}{marker}"
+
+                text = text.rstrip("\n")
+
+                # Combine text and nested list
+                if nested_text:
+                    return f"{prefix} {text}\n{nested_text}\n"
+                else:
+                    return f"{prefix} {text}\n"
+
+            # Default rendering: extract text from raw, text, or children, pass attrs
+            case _:
+                if "raw" in token:
+                    text = token["raw"]
+                elif "text" in token:
+                    # Used by table_cell tokens
+                    text = token["text"]
+                elif "children" in token:
+                    text = self.render_tokens(token["children"], state)
+                else:
+                    # No text content, just call with attrs
+                    if attrs:
+                        return func(**attrs)
+                    else:
+                        return func()
+
+                # Call function with text and attrs
+                if attrs:
+                    return func(text, **attrs)
+                else:
+                    return func(text)
 
 
 def markdown_to_tracwiki(markdown_text: str) -> str:

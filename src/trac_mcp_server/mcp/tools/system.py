@@ -52,10 +52,11 @@ async def handle_system_tool(
         arguments = {}
 
     # Route to appropriate handler
-    if name == "get_server_time":
-        return await _handle_get_server_time(client, arguments)
-    else:
-        raise ValueError(f"Unknown system tool: {name}")
+    match name:
+        case "get_server_time":
+            return await _handle_get_server_time(client, arguments)
+        case _:
+            raise ValueError(f"Unknown system tool: {name}")
 
 
 async def _handle_get_server_time(

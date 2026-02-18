@@ -30,22 +30,6 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest tests/
 
-  live-test:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || !github.event.pull_request.head.repo.fork
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install -e ".[dev]"
-      - run: python scripts/test_trac.py
-        env:
-          TRAC_URL: ${{ secrets.TRAC_URL }}
-          TRAC_USERNAME: ${{ secrets.TRAC_USERNAME }}
-          TRAC_PASSWORD: ${{ secrets.TRAC_PASSWORD }}
-
   build:
     runs-on: ubuntu-latest
     steps:

@@ -179,9 +179,7 @@ async def handle_wiki_read_tool(
                 raise ValueError(f"Unknown wiki read tool: {name}")
 
     except xmlrpc.client.Fault as e:
-        return translate_xmlrpc_error(
-            e, "wiki", args.get("page_name")
-        )
+        return translate_xmlrpc_error(e, "wiki", args.get("page_name"))
     except ValueError as e:
         return build_error_response(
             "validation_error",
@@ -429,17 +427,17 @@ async def _handle_recent_changes(
         page_version = change.get("version", 1)
 
         # Format timestamp
-        if isinstance(last_modified, xmlrpc.client.DateTime):
-            # Convert DateTime to formatted string
-            dt = datetime.fromtimestamp(
-                time.mktime(last_modified.timetuple())
-            )
-            modified_str = dt.strftime("%Y-%m-%d %H:%M")
-        elif isinstance(last_modified, (int, float)):
-            dt = datetime.fromtimestamp(last_modified)
-            modified_str = dt.strftime("%Y-%m-%d %H:%M")
-        else:
-            modified_str = str(last_modified)
+        match last_modified:
+            case xmlrpc.client.DateTime() as dt_val:
+                dt = datetime.fromtimestamp(
+                    time.mktime(dt_val.timetuple())
+                )
+                modified_str = dt.strftime("%Y-%m-%d %H:%M")
+            case int() | float() as ts:
+                dt = datetime.fromtimestamp(ts)
+                modified_str = dt.strftime("%Y-%m-%d %H:%M")
+            case _:
+                modified_str = str(last_modified)
 
         response_lines.append(
             f"- {page_name} (modified: {modified_str} by {author})"
@@ -472,5 +470,3 @@ async def _handle_recent_changes(
             "since_days": since_days,
         },
     )
-
-

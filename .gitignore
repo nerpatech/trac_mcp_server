@@ -45,12 +45,11 @@ htmlcov/
 .coverage
 coverage.xml
 .ruff_cache/
+scripts/*md
+scripts/*log
 
 # Logs
 *.log
-
-# Test reports
-scripts/comprehensive-mcp-tool-test-*.md
 
 # PyInstaller
 *.spec

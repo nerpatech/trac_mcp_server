@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trac-mcp-server"
-version = "2.1.1"
+version = "2.1.2"
 description = "Standalone MCP Server for Trac integration"
 readme = "README.md"
 license = "MIT"
@@ -40,6 +40,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-ruff>=0.5.0",
     "pyinstaller>=6.0.0",
     "ruff>=0.15.0",
 ]
@@ -62,6 +63,7 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "--ruff --ruff-format"
 
 [tool.ruff]
 line-length = 72

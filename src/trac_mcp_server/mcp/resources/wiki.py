@@ -254,9 +254,7 @@ def _format_page_response(
 
     # Format timestamp
     modified_str = (
-        format_timestamp(last_modified)
-        if last_modified
-        else "unknown"
+        format_timestamp(last_modified) if last_modified else "unknown"
     )
 
     return f"""# {page_name}

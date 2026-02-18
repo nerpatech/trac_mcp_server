@@ -54,13 +54,14 @@ def format_timestamp(timestamp: Any) -> str:
     Returns:
         Formatted date string (YYYY-MM-DD HH:MM)
     """
-    if isinstance(timestamp, datetime):
-        return timestamp.strftime("%Y-%m-%d %H:%M")
-    elif isinstance(timestamp, (int, float)):
-        dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-        return dt.strftime("%Y-%m-%d %H:%M")
-    else:
-        return str(timestamp)
+    match timestamp:
+        case datetime() as dt:
+            return dt.strftime("%Y-%m-%d %H:%M")
+        case int() | float() as ts:
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        case _:
+            return str(timestamp)
 
 
 # ---------------------------------------------------------------------------
@@ -112,50 +113,52 @@ def translate_xmlrpc_error(
     msgs = _DOMAIN_MESSAGES.get(domain, _DOMAIN_MESSAGES["ticket"])
     fault_str = error.faultString.lower()
 
-    if "not found" in fault_str or "does not exist" in fault_str:
-        if entity_name and "not_found_named" in msgs:
-            action = msgs["not_found_named"].format(
-                entity_name=entity_name
+    match fault_str:
+        case s if "not found" in s or "does not exist" in s:
+            if entity_name and "not_found_named" in msgs:
+                action = msgs["not_found_named"].format(
+                    entity_name=entity_name
+                )
+            elif entity_name and domain == "wiki":
+                action = msgs.get(
+                    "not_found_named", msgs["not_found"]
+                ).format(entity_name=entity_name)
+            else:
+                action = msgs["not_found"]
+            return build_error_response(
+                "not_found", error.faultString, action
             )
-        elif entity_name and domain == "wiki":
-            action = msgs.get("not_found_named", msgs["not_found"]).format(
-                entity_name=entity_name
+
+        case s if (
+            "permission" in s
+            or "denied" in s
+            or (domain == "milestone" and error.faultCode == 403)
+        ):
+            perm_msg = error.faultString
+            if domain == "milestone":
+                perm_msg = f"{error.faultString} (requires TICKET_ADMIN for create/update/delete)"
+            return build_error_response(
+                "permission_denied", perm_msg, msgs["permission"]
             )
-        else:
-            action = msgs["not_found"]
-        return build_error_response(
-            "not_found", error.faultString, action
-        )
 
-    if (
-        "permission" in fault_str
-        or "denied" in fault_str
-        or (domain == "milestone" and error.faultCode == 403)
-    ):
-        perm_msg = error.faultString
-        if domain == "milestone":
-            perm_msg = f"{error.faultString} (requires TICKET_ADMIN for create/update/delete)"
-        return build_error_response(
-            "permission_denied", perm_msg, msgs["permission"]
-        )
+        case s if domain == "milestone" and (
+            "exists" in s or "already" in s
+        ):
+            return build_error_response(
+                "already_exists",
+                error.faultString,
+                msgs["already_exists"],
+            )
 
-    if domain == "milestone" and (
-        "exists" in fault_str or "already" in fault_str
-    ):
-        return build_error_response(
-            "already_exists",
-            error.faultString,
-            msgs["already_exists"],
-        )
+        case s if "version" in s or "not modified" in s:
+            action = msgs.get("version", msgs["server"])
+            if entity_name:
+                action = action.format(entity_name=entity_name)
+            return build_error_response(
+                "version_conflict", error.faultString, action
+            )
 
-    if "version" in fault_str or "not modified" in fault_str:
-        action = msgs.get("version", msgs["server"])
-        if entity_name:
-            action = action.format(entity_name=entity_name)
-        return build_error_response(
-            "version_conflict", error.faultString, action
-        )
-
-    return build_error_response(
-        "server_error", error.faultString, msgs["server"]
-    )
+        case _:
+            return build_error_response(
+                "server_error", error.faultString, msgs["server"]
+            )

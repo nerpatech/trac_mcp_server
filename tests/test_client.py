@@ -1725,7 +1725,9 @@ def test_get_ticket_fields_success(mock_post, mock_config):
 
 
 @patch("trac_mcp_server.core.client.requests.Session.post")
-def test_get_ticket_fields_returns_custom_fields(mock_post, mock_config):
+def test_get_ticket_fields_returns_custom_fields(
+    mock_post, mock_config
+):
     """Test get_ticket_fields includes custom field indicators."""
     mock_response = Mock()
     mock_response.status_code = 200

@@ -344,5 +344,3 @@ async def _handle_delete(
             )
         ]
     )
-
-
