@@ -1,0 +1,5 @@
+# Read-only agent persona
+# Can view tickets, wiki pages, and milestones but cannot modify anything.
+TICKET_VIEW
+WIKI_VIEW
+MILESTONE_VIEW
