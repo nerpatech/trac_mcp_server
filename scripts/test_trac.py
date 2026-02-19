@@ -283,7 +283,7 @@ class ComprehensiveMCPTester:
 
         # ticket_get - need a valid ticket ID
         # First get a ticket from search
-        search_success, search_response, _raw = await self._call_tool(
+        search_success, search_response, _ = await self._call_tool(
             "ticket_search", {"max_results": 1}
         )
         ticket_id = None
@@ -299,7 +299,7 @@ class ComprehensiveMCPTester:
         # If no tickets exist, create a temporary one for read tests
         temp_ticket_id: int | None = None
         if not ticket_id:
-            create_success, create_response, _raw = await self._call_tool(
+            create_success, create_response, _ = await self._call_tool(
                 "ticket_create",
                 {
                     "summary": f"[MCP READ TEST {self.timestamp}] Temporary ticket for read tests",
@@ -1582,7 +1582,7 @@ print('hello')
 
         # Batch-delete leftover batch tickets (if batch delete test failed)
         if self.test_batch_ticket_ids:
-            success, _, _raw = await self._call_tool(
+            success, _, _ = await self._call_tool(
                 "ticket_batch_delete",
                 {"ticket_ids": self.test_batch_ticket_ids},
             )
@@ -1626,7 +1626,7 @@ print('hello')
 
         # Delete test wiki page if still exists
         if self.test_wiki_page:
-            success, _, _raw = await self._call_tool(
+            success, _, _ = await self._call_tool(
                 "wiki_delete", {"page_name": self.test_wiki_page}
             )
             if success:
@@ -1641,7 +1641,7 @@ print('hello')
 
         # Delete test milestone if still exists
         if self.test_milestone:
-            success, _, _raw = await self._call_tool(
+            success, _, _ = await self._call_tool(
                 "milestone_delete", {"name": self.test_milestone}
             )
             if success:
