@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-Comprehensive MCP Tool Live Testing
+Comprehensive MCP Tool Live Testing (v7.0.0)
 
-This script tests all 27 Trac MCP server tools against a live Trac server instance,
-validating the complete MCP tool surface before release.
+Tests all 27 Trac MCP server tools against a live Trac server instance
+via MCP stdio protocol. Communicates with trac-mcp-server binary as a
+real MCP client (same protocol path as Claude Desktop/Code).
 
 Features:
 - Tests all 27 tools: ping + 8 ticket + 3 batch ticket + 6 wiki + 3 wiki_file + 5 milestone + 1 system
+- Communicates via MCP stdio protocol (launches trac-mcp-server as subprocess)
+- --tools flag selects a subset of tools to test and filters Tool Catalog
+- --permissions-file passes permission restrictions to the server subprocess
+- Automatic debug logging to ./test_trac_debug.log (--timestamp for unique filenames)
 - Covers happy paths, error handling, and edge cases
 - Tests format conversions (Markdown <-> TracWiki)
 - Tests batch operations with parallel execution
@@ -24,20 +29,16 @@ import re
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-# Import MCP tool handlers directly
 import mcp.types as types
-from dotenv import load_dotenv
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from trac_mcp_server import __version__ as PACKAGE_VERSION
-from trac_mcp_server.config import Config, load_config
-from trac_mcp_server.core.async_utils import run_sync
-from trac_mcp_server.core.client import TracClient
-from trac_mcp_server.mcp.tools import ALL_SPECS
-from trac_mcp_server.mcp.tools.registry import ToolRegistry
 
-VERSION = "6.0.0"
+VERSION = "7.0.0"
 
 # Number of tickets to create in batch tests.
 # Keep small for routine testing; increase for load/stress testing.
@@ -108,24 +109,31 @@ class ComprehensiveMCPTester:
 
     def __init__(
         self,
-        config: Config,
+        session: ClientSession,
         logger: logging.Logger,
         verbose: bool = False,
+        tools_filter: list[str] | None = None,
     ):
-        self.config = config
-        self.client = TracClient(config)
-        self.registry = ToolRegistry(ALL_SPECS)
+        self.session = session
         self.logger = logger
         self.verbose = verbose
         self.report = CheckReport()
         self.report.binary_version = PACKAGE_VERSION
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.tools_filter: set[str] | None = set(tools_filter) if tools_filter else None
+        self.available_tools: list[types.Tool] = []
 
         # Track test resources for cleanup
         self.test_ticket_id: Optional[int] = None
         self.test_wiki_page: Optional[str] = None
         self.test_milestone: Optional[str] = None
         self.test_batch_ticket_ids: list[int] = []
+
+    def _should_test_tool(self, tool_name: str) -> bool:
+        """Check if a tool should be tested based on --tools filter."""
+        if self.tools_filter is None:
+            return True
+        return tool_name in self.tools_filter
 
     def _color(self, text: str) -> str:
         """Return text as-is (no color formatting)."""
@@ -147,22 +155,9 @@ class ComprehensiveMCPTester:
     async def _call_tool(
         self, tool_name: str, arguments: dict | None = None
     ) -> tuple[bool, str, types.CallToolResult | None]:
-        """Call an MCP tool and return (success, response_text, raw_result)"""
+        """Call an MCP tool via the client session and return (success, response_text, raw_result)."""
         try:
-            if tool_name == "ping":
-                # Handle ping specially (no CallToolResult available)
-                version = await run_sync(
-                    self.client.validate_connection
-                )
-                return (
-                    True,
-                    f"Trac MCP server connected successfully. API version: {version}",
-                    None,
-                )
-
-            result = await self.registry.call_tool(
-                tool_name, arguments or {}, self.client
-            )
+            result = await self.session.call_tool(tool_name, arguments or {})
 
             # Extract text from CallToolResult.content
             response_text = "\n".join(
@@ -172,7 +167,7 @@ class ComprehensiveMCPTester:
             )
 
             # Check for error indicators in response
-            is_error = (
+            is_error = result.isError or (
                 "error_type" in response_text.lower()
                 or response_text.startswith("{")
             )
@@ -180,6 +175,11 @@ class ComprehensiveMCPTester:
 
         except Exception as e:
             return False, str(e), None
+
+    async def fetch_tool_catalog(self):
+        """Fetch the tool catalog from the MCP server via list_tools()."""
+        result = await self.session.list_tools()
+        self.available_tools = result.tools
 
     async def test_ping(self):
         """Phase 1: Test connectivity"""
@@ -201,7 +201,8 @@ class ComprehensiveMCPTester:
         self._log_result(result)
 
         if success and "API version" in response:
-            self.report.server_url = self.config.trac_url
+            # Server URL not directly available via MCP protocol; note in report
+            self.report.server_url = "(via MCP stdio protocol)"
 
     async def test_system_tools(self):
         """Phase 1b: Test system tools"""
@@ -1210,7 +1211,7 @@ print('hello')
                 {
                     "ticket_id": tid,
                     "keywords": "mcp-batch-test,auto-delete,batch-updated",
-                    "comment": f"Batch update test — ticket **#{tid}**",
+                    "comment": f"Batch update test -- ticket **#{tid}**",
                 }
                 for tid in self.test_batch_ticket_ids
             ]
@@ -1587,34 +1588,39 @@ print('hello')
             )
             if success:
                 print(
-                    f"  {self._color('✓')} Batch-deleted {len(self.test_batch_ticket_ids)} leftover batch tickets"
+                    f"  {self._color('OK')} Batch-deleted {len(self.test_batch_ticket_ids)} leftover batch tickets"
                 )
                 self.test_batch_ticket_ids = []
             else:
                 print(
-                    f"  {self._color('✗')} Could not batch-delete leftover tickets, trying individually"
+                    f"  {self._color('FAIL')} Could not batch-delete leftover tickets, trying individually"
                 )
                 for tid in self.test_batch_ticket_ids:
                     try:
-                        await run_sync(self.client.delete_ticket, tid)
+                        await self._call_tool(
+                            "ticket_delete", {"ticket_id": tid}
+                        )
                     except Exception:
                         cleanup_success = False
 
         # Close test ticket if still exists (fallback if delete failed or was skipped)
         if self.test_ticket_id:
             try:
-                await run_sync(
-                    self.client.update_ticket,
-                    self.test_ticket_id,
-                    "[AUTO-CLEANUP] MCP test completed",
-                    {"status": "closed", "resolution": "invalid"},
+                await self._call_tool(
+                    "ticket_update",
+                    {
+                        "ticket_id": self.test_ticket_id,
+                        "comment": "[AUTO-CLEANUP] MCP test completed",
+                        "status": "closed",
+                        "resolution": "invalid",
+                    },
                 )
                 print(
-                    f"  {self._color('✓')} Closed test ticket #{self.test_ticket_id}"
+                    f"  {self._color('OK')} Closed test ticket #{self.test_ticket_id}"
                 )
             except Exception as e:
                 print(
-                    f"  {self._color('✗')} Could not close ticket #{self.test_ticket_id}: {e}"
+                    f"  {self._color('FAIL')} Could not close ticket #{self.test_ticket_id}: {e}"
                 )
                 cleanup_success = False
 
@@ -1625,11 +1631,11 @@ print('hello')
             )
             if success:
                 print(
-                    f"  {self._color('✓')} Deleted test wiki page: {self.test_wiki_page}"
+                    f"  {self._color('OK')} Deleted test wiki page: {self.test_wiki_page}"
                 )
             else:
                 print(
-                    f"  {self._color('✗')} Could not delete wiki page: {self.test_wiki_page}"
+                    f"  {self._color('FAIL')} Could not delete wiki page: {self.test_wiki_page}"
                 )
                 cleanup_success = False
 
@@ -1640,11 +1646,11 @@ print('hello')
             )
             if success:
                 print(
-                    f"  {self._color('✓')} Deleted test milestone: {self.test_milestone}"
+                    f"  {self._color('OK')} Deleted test milestone: {self.test_milestone}"
                 )
             else:
                 print(
-                    f"  {self._color('✗')} Could not delete milestone: {self.test_milestone}"
+                    f"  {self._color('FAIL')} Could not delete milestone: {self.test_milestone}"
                 )
                 cleanup_success = False
 
@@ -1652,16 +1658,24 @@ print('hello')
 
     def _generate_tool_catalog(self) -> list[str]:
         """Generate Tool Catalog section showing what LLM sees at tool listing time."""
+        tools_to_show = self.available_tools
+        if self.tools_filter:
+            tools_to_show = [t for t in self.available_tools if t.name in self.tools_filter]
+
         lines = [
             "## Tool Catalog (LLM Tool Presentation)",
             "",
-            f"**Total tools registered:** {self.registry.tool_count()}",
+            f"**Total tools registered:** {len(self.available_tools)}",
+        ]
+        if self.tools_filter:
+            lines.append(f"**Tools shown (filtered):** {len(tools_to_show)}")
+        lines.extend([
             "",
             "This section shows the exact tool definitions presented to the LLM/agent",
             "via `list_tools()`. Each entry includes name, description, and full inputSchema.",
             "",
-        ]
-        for tool in self.registry.list_tools():
+        ])
+        for tool in tools_to_show:
             lines.append(f"### `{tool.name}`")
             lines.append("")
             lines.append(f"**Description:** {tool.description}")
@@ -1856,27 +1870,57 @@ print('hello')
     async def run_all_tests(self) -> bool:
         """Run all test phases"""
         try:
+            # Fetch tool catalog from the MCP server
+            await self.fetch_tool_catalog()
+
             # Phase 1: Connectivity
-            await self.test_ping()
-            await self.test_system_tools()
+            if self._should_test_tool("ping"):
+                await self.test_ping()
+            if self._should_test_tool("get_server_time"):
+                await self.test_system_tools()
 
             # Phase 2: Read operations
-            await self.test_ticket_read_operations()
-            await self.test_wiki_read_operations()
-            await self.test_milestone_read_operations()
+            ticket_read_tools = {"ticket_search", "ticket_get", "ticket_changelog", "ticket_actions", "ticket_fields"}
+            if not self.tools_filter or self.tools_filter & ticket_read_tools:
+                await self.test_ticket_read_operations()
+
+            wiki_read_tools = {"wiki_get", "wiki_search", "wiki_recent_changes"}
+            if not self.tools_filter or self.tools_filter & wiki_read_tools:
+                await self.test_wiki_read_operations()
+
+            milestone_read_tools = {"milestone_list", "milestone_get"}
+            if not self.tools_filter or self.tools_filter & milestone_read_tools:
+                await self.test_milestone_read_operations()
 
             # Phase 3: Write operations
-            await self.test_ticket_write_operations()
-            await self.test_wiki_write_operations()
-            await self.test_wiki_file_operations()
-            await self.test_milestone_write_operations()
-            await self.test_ticket_batch_operations()
+            ticket_write_tools = {"ticket_create", "ticket_update"}
+            if not self.tools_filter or self.tools_filter & ticket_write_tools:
+                await self.test_ticket_write_operations()
+
+            wiki_write_tools = {"wiki_create", "wiki_update"}
+            if not self.tools_filter or self.tools_filter & wiki_write_tools:
+                await self.test_wiki_write_operations()
+
+            wiki_file_tools = {"wiki_file_detect_format", "wiki_file_push", "wiki_file_pull"}
+            if not self.tools_filter or self.tools_filter & wiki_file_tools:
+                await self.test_wiki_file_operations()
+
+            milestone_write_tools = {"milestone_create", "milestone_update"}
+            if not self.tools_filter or self.tools_filter & milestone_write_tools:
+                await self.test_milestone_write_operations()
+
+            batch_tools = {"ticket_batch_create", "ticket_batch_update", "ticket_batch_delete"}
+            if not self.tools_filter or self.tools_filter & batch_tools:
+                await self.test_ticket_batch_operations()
 
             # Phase 4: Delete operations
-            await self.test_delete_operations()
+            delete_tools = {"wiki_delete", "milestone_delete", "ticket_delete"}
+            if not self.tools_filter or self.tools_filter & delete_tools:
+                await self.test_delete_operations()
 
-            # Phase 5: Error handling
-            await self.test_error_handling()
+            # Phase 5: Error handling (tests multiple tools)
+            if not self.tools_filter:
+                await self.test_error_handling()
 
             # Cleanup
             cleanup_ok = await self.cleanup()
@@ -1919,8 +1963,21 @@ def setup_logging(
 
 
 async def async_main(args):
-    """Async main function"""
-    logger = setup_logging(args.log_file, verbose=args.verbose)
+    """Async main function - launches trac-mcp-server and connects via MCP protocol."""
+    # Build debug log path
+    log_dir = Path(".")
+    if args.timestamp:
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"test_trac_debug_{timestamp_str}.log"
+    else:
+        log_filename = "test_trac_debug.log"
+    log_path = log_dir / log_filename
+
+    # Delete previous log (only when not using timestamp)
+    if not args.timestamp and log_path.exists():
+        log_path.unlink()
+
+    logger = setup_logging(str(log_path), verbose=args.verbose)
 
     # Print header
     print(f"\n{'=' * 70}")
@@ -1928,47 +1985,65 @@ async def async_main(args):
     print(f"{'v' + VERSION:^70}")
     print(f"{'trac-mcp-server ' + PACKAGE_VERSION:^70}")
     print(f"{'=' * 70}\n")
+    print(f"Debug log: {log_path}")
+
+    # Build server command with CLI arguments
+    server_cmd = "trac-mcp-server"
+    server_args = []
+    if args.url:
+        server_args.extend(["--url", args.url])
+    if args.username:
+        server_args.extend(["--username", args.username])
+    if args.password:
+        server_args.extend(["--password", args.password])
+    if args.insecure:
+        server_args.append("--insecure")
+    if args.permissions_file:
+        server_args.extend(["--permissions-file", args.permissions_file])
+
+    server_params = StdioServerParameters(
+        command=server_cmd,
+        args=server_args,
+    )
 
     try:
-        load_dotenv()
-        config = load_config()
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                init_result = await session.initialize()
+                logger.info(
+                    "MCP session initialized: server=%s version=%s",
+                    init_result.serverInfo.name,
+                    init_result.serverInfo.version,
+                )
+                print(f"Connected to MCP server: {init_result.serverInfo.name} v{init_result.serverInfo.version}")
 
-        # Override config with CLI arguments
-        if args.url:
-            config.trac_url = args.url
-        if args.username:
-            config.username = args.username
-        if args.password:
-            config.password = args.password
-        if args.insecure:
-            config.insecure = True
+                tester = ComprehensiveMCPTester(
+                    session=session,
+                    logger=logger,
+                    verbose=args.verbose,
+                    tools_filter=args.tools,
+                )
 
-        tester = ComprehensiveMCPTester(
-            config, logger, verbose=args.verbose
-        )
+                success = await tester.run_all_tests()
 
-        success = await tester.run_all_tests()
+                # Generate report
+                report_path = (
+                    args.output
+                    or f"./comprehensive-mcp-tool-test-{datetime.now().strftime('%Y-%m-%d')}.md"
+                )
+                tester.generate_report(report_path)
 
-        # Generate report
-        report_path = (
-            args.output
-            or f"./comprehensive-mcp-tool-test-{datetime.now().strftime('%Y-%m-%d')}.md"
-        )
-        tester.generate_report(report_path)
+                # Print summary
+                print(f"\n{'=' * 70}")
+                print(f"{'SUMMARY':^70}")
+                print(f"{'=' * 70}")
+                print(
+                    f"Total: {tester.report.total} | Passed: {tester.report.passed} | Failed: {tester.report.failed}"
+                )
+                if not success:
+                    print("\nSome tests failed. Check the report for details.")
 
-        # Print summary
-        print(f"\n{'=' * 70}")
-        print(f"{'SUMMARY':^70}")
-        print(f"{'=' * 70}")
-
-        print(
-            f"Total: {tester.report.total} | Passed: {tester.report.passed} | Failed: {tester.report.failed}"
-        )
-
-        if not success:
-            print("\nSome tests failed. Check the report for details.")
-
-        return 0 if success else 1
+                return 0 if success else 1
 
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
@@ -1982,9 +2057,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                                    # Run all tests with default config
+  %(prog)s                                    # Run all tests (launches trac-mcp-server subprocess)
   %(prog)s --verbose                          # Run with verbose output
-  %(prog)s --url http://trac.example.com      # Override Trac URL
+  %(prog)s --url http://trac.example.com      # Override Trac URL (passed to server)
+  %(prog)s --tools ping ticket_get wiki_get   # Test only specific tools
+  %(prog)s --permissions-file ro.permissions  # Test with restricted permissions
+  %(prog)s --timestamp                        # Keep debug log with timestamp
   %(prog)s --output ./my-report.md            # Custom report location
         """,
     )
@@ -1992,20 +2070,34 @@ Examples:
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {VERSION}"
     )
-    parser.add_argument("--url", help="Override Trac URL")
-    parser.add_argument("--username", help="Override username")
-    parser.add_argument("--password", help="Override password")
+    parser.add_argument("--url", help="Override Trac URL (passed to trac-mcp-server)")
+    parser.add_argument("--username", help="Override username (passed to trac-mcp-server)")
+    parser.add_argument("--password", help="Override password (passed to trac-mcp-server)")
     parser.add_argument(
-        "--insecure", action="store_true", help="Skip SSL verification"
+        "--insecure", action="store_true", help="Skip SSL verification (passed to trac-mcp-server)"
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Verbose output"
     )
     parser.add_argument("--output", "-o", help="Output report path")
     parser.add_argument(
-        "--log-file",
+        "--tools",
+        nargs="+",
+        metavar="TOOL",
         default=None,
-        help="Log file path (omit to skip file logging)",
+        help="Only test specific tools (space-separated names, e.g., --tools ticket_get wiki_get ping). "
+        "Also filters Tool Catalog to show only these tools.",
+    )
+    parser.add_argument(
+        "--permissions-file",
+        default=None,
+        help="Path to permissions file to pass to trac-mcp-server (restricts available tools). "
+        "Format: one Trac permission per line (e.g., TICKET_VIEW), # for comments.",
+    )
+    parser.add_argument(
+        "--timestamp",
+        action="store_true",
+        help="Include timestamp in debug log filename (prevents overwrite on next run)",
     )
 
     args = parser.parse_args()
