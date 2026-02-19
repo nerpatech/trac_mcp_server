@@ -1358,7 +1358,7 @@ class TestHandleTicketFields:
                 },
             ]
 
-            result = self._run(_handle_fields(client))
+            result = self._run(_handle_fields(client, {}))
 
             assert isinstance(result, types.CallToolResult)
             text = result.content[0].text
@@ -1393,7 +1393,7 @@ class TestHandleTicketFields:
                 },
             ]
 
-            result = self._run(_handle_fields(client))
+            result = self._run(_handle_fields(client, {}))
 
             text = result.content[0].text
             assert "Custom Fields" in text
@@ -1614,7 +1614,7 @@ class TestHandleTicketReadTool:
                 handle_ticket_read_tool("ticket_fields", {}, client)
             )
 
-            mock_handler.assert_awaited_once_with(client)
+            mock_handler.assert_awaited_once_with(client, {})
 
     def test_routes_to_actions(self):
         """Dispatcher routes ticket_actions to _handle_actions."""

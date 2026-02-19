@@ -2,11 +2,11 @@
 
 Verifies:
 - Wiki tools appear in handle_list_tools with correct schemas
-- Wiki tool calls route to the correct handler (read vs write)
+- Wiki tool calls route to the correct handler via ToolRegistry
 - Unknown wiki tools return error response
 
 Note: Detailed handler behavior and error handling are tested in
-tests/test_mcp/tools/test_wiki.py — this file only tests the server
+tests/test_mcp/tools/test_wiki.py -- this file only tests the server
 routing layer.
 """
 
@@ -16,17 +16,39 @@ from unittest.mock import MagicMock, patch
 import mcp.types as types
 
 from trac_mcp_server.mcp.server import (
+    PING_SPEC,
     handle_call_tool,
     handle_list_tools,
+    set_registry,
 )
+from trac_mcp_server.mcp.tools import ALL_SPECS
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
+
+
+def _init_registry():
+    """Initialize the global registry for testing."""
+    registry = ToolRegistry([PING_SPEC] + ALL_SPECS)
+    set_registry(registry)
+
+
+def _clear_registry():
+    """Clear the global registry after testing."""
+    set_registry(None)
+
 
 # ---------------------------------------------------------------------------
-# Registration tests — verify tool schemas
+# Registration tests -- verify tool schemas
 # ---------------------------------------------------------------------------
 
 
 class TestWikiToolRegistration:
     """Test wiki tools are registered in handle_list_tools."""
+
+    def setup_method(self):
+        _init_registry()
+
+    def teardown_method(self):
+        _clear_registry()
 
     def test_wiki_tools_registered(self):
         """All 4 wiki tools appear in handle_list_tools response."""
@@ -99,41 +121,67 @@ class TestWikiToolRegistration:
 
 
 # ---------------------------------------------------------------------------
-# Routing tests — verify dispatch to correct handler
+# Routing tests -- verify dispatch via ToolRegistry
 # ---------------------------------------------------------------------------
 
 
 class TestWikiToolRouting:
-    """Test wiki tool calls route to the correct handler."""
+    """Test wiki tool calls route to the correct handler via ToolRegistry."""
 
-    @patch("trac_mcp_server.mcp.server.handle_wiki_read_tool")
+    def setup_method(self):
+        _init_registry()
+
+    def teardown_method(self):
+        _clear_registry()
+
+    @patch("trac_mcp_server.mcp.server.get_registry")
     @patch("trac_mcp_server.mcp.server.get_client")
-    def test_wiki_read_tools_route_to_read_handler(
-        self, mock_get_client, mock_handler
+    def test_wiki_read_tools_route_to_registry(
+        self, mock_get_client, mock_get_registry
     ):
-        """wiki_get routes to handle_wiki_read_tool."""
-        mock_get_client.return_value = MagicMock()
-        mock_handler.return_value = types.CallToolResult(
+        """wiki_get routes through ToolRegistry.call_tool."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_registry = MagicMock()
+        mock_get_registry.return_value = mock_registry
+
+        expected = types.CallToolResult(
             content=[types.TextContent(type="text", text="ok")]
         )
+
+        async def fake_call_tool(name, args, client):
+            return expected
+
+        mock_registry.call_tool = MagicMock(side_effect=fake_call_tool)
 
         result = asyncio.run(
             handle_call_tool("wiki_get", {"page_name": "Test"})
         )
 
-        mock_handler.assert_called_once()
+        mock_registry.call_tool.assert_called_once_with(
+            "wiki_get", {"page_name": "Test"}, mock_client
+        )
         assert not result.isError
 
-    @patch("trac_mcp_server.mcp.server.handle_wiki_write_tool")
+    @patch("trac_mcp_server.mcp.server.get_registry")
     @patch("trac_mcp_server.mcp.server.get_client")
-    def test_wiki_write_tools_route_to_write_handler(
-        self, mock_get_client, mock_handler
+    def test_wiki_write_tools_route_to_registry(
+        self, mock_get_client, mock_get_registry
     ):
-        """wiki_create routes to handle_wiki_write_tool."""
-        mock_get_client.return_value = MagicMock()
-        mock_handler.return_value = types.CallToolResult(
+        """wiki_create routes through ToolRegistry.call_tool."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_registry = MagicMock()
+        mock_get_registry.return_value = mock_registry
+
+        expected = types.CallToolResult(
             content=[types.TextContent(type="text", text="created")]
         )
+
+        async def fake_call_tool(name, args, client):
+            return expected
+
+        mock_registry.call_tool = MagicMock(side_effect=fake_call_tool)
 
         result = asyncio.run(
             handle_call_tool(
@@ -142,7 +190,11 @@ class TestWikiToolRouting:
             )
         )
 
-        mock_handler.assert_called_once()
+        mock_registry.call_tool.assert_called_once_with(
+            "wiki_create",
+            {"page_name": "New", "content": "# New"},
+            mock_client,
+        )
         assert not result.isError
 
     @patch("trac_mcp_server.mcp.server.get_client")
@@ -154,4 +206,4 @@ class TestWikiToolRouting:
 
         assert isinstance(result, types.CallToolResult)
         assert result.isError
-        assert "Unknown wiki" in result.content[0].text
+        assert "Unknown" in result.content[0].text

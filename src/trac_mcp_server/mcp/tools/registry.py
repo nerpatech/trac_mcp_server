@@ -8,10 +8,12 @@ Key concepts:
 - ToolSpec: Immutable dataclass linking a Tool definition, required permissions,
   and an async handler with standardized signature (client, args) -> CallToolResult.
 - ToolRegistry: Filters specs by allowed permissions at construction time,
-  then provides list_tools() and call_tool() dispatch.
+  then provides list_tools() and call_tool() dispatch with error translation.
 - load_permissions_file: Reads a simple text file of Trac permission names.
 """
 
+import logging
+import xmlrpc.client
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +21,8 @@ from pathlib import Path
 import mcp.types as types
 
 from ...core.client import TracClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +80,10 @@ class ToolRegistry:
     ) -> types.CallToolResult:
         """Dispatch tool call to registered handler.
 
+        Provides centralized error handling for XML-RPC faults, validation
+        errors, and unexpected exceptions, translating them into structured
+        CallToolResult responses with corrective actions.
+
         Args:
             name: Tool name to invoke.
             arguments: Tool arguments (may be None).
@@ -87,11 +95,47 @@ class ToolRegistry:
         Raises:
             ValueError: If tool name is not registered (unknown or filtered out).
         """
+        from .errors import build_error_response, translate_xmlrpc_error
+
         spec = self._specs.get(name)
         if spec is None:
             raise ValueError(f"Unknown tool: {name}")
         args = arguments or {}
-        return await spec.handler(client, args)
+        try:
+            return await spec.handler(client, args)
+        except xmlrpc.client.Fault as e:
+            domain = _domain_from_tool_name(name)
+            logger.warning("XML-RPC fault in %s: %s", name, e.faultString)
+            return translate_xmlrpc_error(e, domain)
+        except ValueError as e:
+            return build_error_response(
+                "validation_error",
+                str(e),
+                "Check parameter values and retry.",
+            )
+        except Exception as e:
+            logger.exception("Unexpected error in tool %s", name)
+            return build_error_response(
+                "server_error",
+                str(e),
+                "Contact Trac administrator or retry later.",
+            )
+
+
+def _domain_from_tool_name(name: str) -> str:
+    """Derive error domain from tool name for corrective action messages.
+
+    Maps tool names like 'ticket_search', 'wiki_get', 'milestone_list'
+    to their error domain ('ticket', 'wiki', 'milestone').
+    Falls back to 'ticket' for unrecognized patterns.
+    """
+    if name.startswith("wiki_"):
+        return "wiki"
+    if name.startswith("milestone_"):
+        return "milestone"
+    if name.startswith("ticket_"):
+        return "ticket"
+    return "ticket"
 
 
 def load_permissions_file(path: str | Path) -> frozenset[str]:

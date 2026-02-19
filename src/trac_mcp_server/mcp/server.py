@@ -30,7 +30,7 @@ from .resources.wiki import (
     handle_list_wiki_resources,
     handle_read_wiki_resource,
 )
-from .tools import ALL_SPECS, ToolRegistry, load_permissions_file
+from .tools import ALL_SPECS, ToolRegistry, build_error_response, load_permissions_file
 from .tools.registry import ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -209,12 +209,17 @@ async def handle_call_tool(
 
     Returns:
         CallToolResult with tool output content and optional isError flag.
-
-    Raises:
-        ValueError: If the tool name is unknown or filtered out by permissions.
     """
     client = get_client()
-    return await get_registry().call_tool(name, arguments, client)
+    try:
+        return await get_registry().call_tool(name, arguments, client)
+    except ValueError as e:
+        # Unknown or filtered-out tool name
+        return build_error_response(
+            "unknown_tool",
+            str(e),
+            "Use list_tools to see available tools.",
+        )
 
 
 # ---------------------------------------------------------------------------
