@@ -1,0 +1,10 @@
+get_server_time
+ping
+wiki_create
+wiki_file_detect_format
+wiki_file_pull
+wiki_file_push
+wiki_get
+wiki_recent_changes
+wiki_search
+wiki_update
