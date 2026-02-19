@@ -54,6 +54,7 @@ _registry: ToolRegistry | None = None
 # Ping tool (always available, no Trac permission required)
 # ---------------------------------------------------------------------------
 
+
 async def _handle_ping(
     client: TracClient, args: dict
 ) -> types.CallToolResult:
@@ -98,6 +99,7 @@ PING_SPEC = ToolSpec(
 # ---------------------------------------------------------------------------
 # Global accessors (same pattern as _trac_client)
 # ---------------------------------------------------------------------------
+
 
 def get_client() -> TracClient:
     """Get the global TracClient instance.
@@ -152,6 +154,7 @@ def set_registry(registry: ToolRegistry | None) -> None:
 # ---------------------------------------------------------------------------
 # MCP protocol handlers
 # ---------------------------------------------------------------------------
+
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
@@ -230,6 +233,7 @@ async def handle_call_tool(
 # ---------------------------------------------------------------------------
 # Server lifecycle
 # ---------------------------------------------------------------------------
+
 
 async def main(config_overrides: dict | None = None):
     """Run the MCP server with stdio transport.

@@ -38,7 +38,9 @@ class ToolSpec:
 
     tool: types.Tool
     permissions: frozenset[str]
-    handler: Callable[[TracClient, dict], Awaitable[types.CallToolResult]]
+    handler: Callable[
+        [TracClient, dict], Awaitable[types.CallToolResult]
+    ]
 
 
 class ToolRegistry:
@@ -106,7 +108,9 @@ class ToolRegistry:
         except xmlrpc.client.Fault as e:
             domain = _domain_from_tool_name(name)
             entity_name = _entity_name_from_args(name, args)
-            logger.warning("XML-RPC fault in %s: %s", name, e.faultString)
+            logger.warning(
+                "XML-RPC fault in %s: %s", name, e.faultString
+            )
             return translate_xmlrpc_error(e, domain, entity_name)
         except ValueError as e:
             return build_error_response(
@@ -182,7 +186,10 @@ def load_permissions_file(path: str | Path) -> frozenset[str]:
         if not stripped or stripped.startswith("#"):
             continue
         # Validate: Trac permissions are UPPER_SNAKE_CASE
-        if not stripped.replace("_", "").isalpha() or not stripped.isupper():
+        if (
+            not stripped.replace("_", "").isalpha()
+            or not stripped.isupper()
+        ):
             raise ValueError(
                 f"Invalid permission '{stripped}' at line {line_num} in {path}. "
                 "Expected UPPER_SNAKE_CASE (e.g., TICKET_VIEW)."
