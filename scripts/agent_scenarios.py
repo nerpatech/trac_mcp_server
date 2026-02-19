@@ -19,7 +19,6 @@ Usage:
 
 import argparse
 import asyncio
-import json
 import logging
 import sys
 from dataclasses import dataclass, field
