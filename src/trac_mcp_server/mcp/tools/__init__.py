@@ -5,7 +5,11 @@ with async handlers, Markdown conversion, and structured error responses.
 """
 
 from .errors import build_error_response
-from .milestone import MILESTONE_SPECS, MILESTONE_TOOLS, handle_milestone_tool
+from .milestone import (
+    MILESTONE_SPECS,
+    MILESTONE_TOOLS,
+    handle_milestone_tool,
+)
 from .registry import ToolRegistry, ToolSpec, load_permissions_file
 from .system import SYSTEM_SPECS, SYSTEM_TOOLS, handle_system_tool
 from .ticket_batch import (
@@ -23,8 +27,16 @@ from .ticket_write import (
     TICKET_WRITE_TOOLS,
     handle_ticket_write_tool,
 )
-from .wiki_file import WIKI_FILE_SPECS, WIKI_FILE_TOOLS, handle_wiki_file_tool
-from .wiki_read import WIKI_READ_SPECS, WIKI_READ_TOOLS, handle_wiki_read_tool
+from .wiki_file import (
+    WIKI_FILE_SPECS,
+    WIKI_FILE_TOOLS,
+    handle_wiki_file_tool,
+)
+from .wiki_read import (
+    WIKI_READ_SPECS,
+    WIKI_READ_TOOLS,
+    handle_wiki_read_tool,
+)
 from .wiki_write import (
     WIKI_WRITE_SPECS,
     WIKI_WRITE_TOOLS,

@@ -30,7 +30,12 @@ from .resources.wiki import (
     handle_list_wiki_resources,
     handle_read_wiki_resource,
 )
-from .tools import ALL_SPECS, ToolRegistry, build_error_response, load_permissions_file
+from .tools import (
+    ALL_SPECS,
+    ToolRegistry,
+    build_error_response,
+    load_permissions_file,
+)
 from .tools.registry import ToolSpec
 
 logger = logging.getLogger(__name__)
