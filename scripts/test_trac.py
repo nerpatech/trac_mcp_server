@@ -16,6 +16,7 @@ Features:
 
 import argparse
 import asyncio
+import json
 import logging
 import re
 import sys
@@ -41,6 +42,27 @@ VERSION = "5.0.0"
 BATCH_TEST_SIZE = 10
 
 
+def _extract_raw_fields(
+    raw_result: types.CallToolResult | None,
+) -> dict:
+    """Extract structured fields from a CallToolResult for CheckResult construction."""
+    if raw_result is None:
+        return {
+            "structured_content": None,
+            "is_error": None,
+            "raw_text_content": [],
+        }
+    return {
+        "structured_content": raw_result.structuredContent,
+        "is_error": raw_result.isError,
+        "raw_text_content": [
+            c.text
+            for c in raw_result.content
+            if isinstance(c, types.TextContent)
+        ],
+    }
+
+
 @dataclass
 class CheckResult:
     """Result of a single test case"""
@@ -51,6 +73,10 @@ class CheckResult:
     response: str = ""
     error: str = ""
     notes: str = ""
+    call_args: dict = field(default_factory=dict)
+    structured_content: dict | None = None
+    is_error: bool | None = None
+    raw_text_content: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -118,27 +144,28 @@ class ComprehensiveMCPTester:
 
     async def _call_tool(
         self, tool_name: str, arguments: dict | None = None
-    ) -> tuple[bool, str]:
-        """Call an MCP tool and return (success, response_text)"""
+    ) -> tuple[bool, str, types.CallToolResult | None]:
+        """Call an MCP tool and return (success, response_text, raw_result)"""
         try:
             if tool_name == "ping":
-                # Handle ping specially
+                # Handle ping specially (no CallToolResult available)
                 version = await run_sync(
                     self.client.validate_connection
                 )
                 return (
                     True,
                     f"Trac MCP server connected successfully. API version: {version}",
+                    None,
                 )
 
-            results = await self.registry.call_tool(
+            result = await self.registry.call_tool(
                 tool_name, arguments or {}, self.client
             )
 
             # Extract text from CallToolResult.content
             response_text = "\n".join(
                 c.text
-                for c in results.content
+                for c in result.content
                 if isinstance(c, types.TextContent)
             )
 
@@ -147,16 +174,16 @@ class ComprehensiveMCPTester:
                 "error_type" in response_text.lower()
                 or response_text.startswith("{")
             )
-            return not is_error, response_text
+            return not is_error, response_text, result
 
         except Exception as e:
-            return False, str(e)
+            return False, str(e), None
 
     async def test_ping(self):
         """Phase 1: Test connectivity"""
         print(f"\n{self._color('=== Phase 1: Connectivity ===')}")
 
-        success, response = await self._call_tool("ping")
+        success, response, raw_result = await self._call_tool("ping")
         result = CheckResult(
             tool="ping",
             test_name="connectivity",
@@ -166,6 +193,7 @@ class ComprehensiveMCPTester:
             + response.split("API version:")[-1].strip()
             if "API version" in response
             else "",
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -178,7 +206,7 @@ class ComprehensiveMCPTester:
         print(f"\n{self._color('=== Phase 1b: System Tools ===')}")
 
         # get_server_time
-        success, response = await self._call_tool("get_server_time")
+        success, response, raw_result = await self._call_tool("get_server_time")
 
         # Verify response contains valid timestamp
         passed = False
@@ -206,6 +234,7 @@ class ComprehensiveMCPTester:
             passed=passed,
             response=response[:200],
             notes=notes,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -217,7 +246,8 @@ class ComprehensiveMCPTester:
         )
 
         # ticket_search - default query
-        success, response = await self._call_tool("ticket_search")
+        _args: dict = {}
+        success, response, raw_result = await self._call_tool("ticket_search")
         result = CheckResult(
             tool="ticket_search",
             test_name="default_query",
@@ -225,14 +255,16 @@ class ComprehensiveMCPTester:
             and ("Found" in response or "No tickets" in response),
             response=response[:200],
             notes="Returns open tickets by default",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # ticket_search - custom query with max_results
-        success, response = await self._call_tool(
-            "ticket_search",
-            {"query": "status=closed", "max_results": 5},
+        _args = {"query": "status=closed", "max_results": 5}
+        success, response, raw_result = await self._call_tool(
+            "ticket_search", _args,
         )
         result = CheckResult(
             tool="ticket_search",
@@ -240,13 +272,15 @@ class ComprehensiveMCPTester:
             passed=success,
             response=response[:200],
             notes="Tested status=closed with max_results=5",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # ticket_get - need a valid ticket ID
         # First get a ticket from search
-        search_success, search_response = await self._call_tool(
+        search_success, search_response, _raw = await self._call_tool(
             "ticket_search", {"max_results": 1}
         )
         ticket_id = None
@@ -262,7 +296,7 @@ class ComprehensiveMCPTester:
         # If no tickets exist, create a temporary one for read tests
         temp_ticket_id: int | None = None
         if not ticket_id:
-            create_success, create_response = await self._call_tool(
+            create_success, create_response, _raw = await self._call_tool(
                 "ticket_create",
                 {
                     "summary": f"[MCP READ TEST {self.timestamp}] Temporary ticket for read tests",
@@ -285,8 +319,9 @@ class ComprehensiveMCPTester:
 
         if ticket_id:
             # ticket_get - existing ticket
-            success, response = await self._call_tool(
-                "ticket_get", {"ticket_id": ticket_id}
+            _args = {"ticket_id": ticket_id}
+            success, response, raw_result = await self._call_tool(
+                "ticket_get", _args
             )
             result = CheckResult(
                 tool="ticket_get",
@@ -295,13 +330,16 @@ class ComprehensiveMCPTester:
                 response=response[:300],
                 notes=f"Retrieved ticket #{ticket_id}"
                 + (" (temp)" if temp_ticket_id else ""),
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # ticket_get - raw mode
-            success, response = await self._call_tool(
-                "ticket_get", {"ticket_id": ticket_id, "raw": True}
+            _args = {"ticket_id": ticket_id, "raw": True}
+            success, response, raw_result = await self._call_tool(
+                "ticket_get", _args
             )
             result = CheckResult(
                 tool="ticket_get",
@@ -309,13 +347,16 @@ class ComprehensiveMCPTester:
                 passed=success and "(TracWiki)" in response,
                 response=response[:300],
                 notes="Raw TracWiki format returned",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # ticket_changelog
-            success, response = await self._call_tool(
-                "ticket_changelog", {"ticket_id": ticket_id}
+            _args = {"ticket_id": ticket_id}
+            success, response, raw_result = await self._call_tool(
+                "ticket_changelog", _args
             )
             result = CheckResult(
                 tool="ticket_changelog",
@@ -323,14 +364,16 @@ class ComprehensiveMCPTester:
                 passed=success,
                 response=response[:300],
                 notes="Changelog may be empty for new tickets",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # ticket_changelog - raw mode
-            success, response = await self._call_tool(
-                "ticket_changelog",
-                {"ticket_id": ticket_id, "raw": True},
+            _args = {"ticket_id": ticket_id, "raw": True}
+            success, response, raw_result = await self._call_tool(
+                "ticket_changelog", _args,
             )
             result = CheckResult(
                 tool="ticket_changelog",
@@ -338,13 +381,16 @@ class ComprehensiveMCPTester:
                 passed=success,
                 response=response[:200],
                 notes="Raw TracWiki format for comments",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # ticket_actions
-            success, response = await self._call_tool(
-                "ticket_actions", {"ticket_id": ticket_id}
+            _args = {"ticket_id": ticket_id}
+            success, response, raw_result = await self._call_tool(
+                "ticket_actions", _args
             )
             result = CheckResult(
                 tool="ticket_actions",
@@ -356,6 +402,8 @@ class ComprehensiveMCPTester:
                 ),
                 response=response[:300],
                 notes="Retrieved workflow actions for ticket",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -378,13 +426,14 @@ class ComprehensiveMCPTester:
             self._log_result(result)
 
         # ticket_fields
-        success, response = await self._call_tool("ticket_fields")
+        success, response, raw_result = await self._call_tool("ticket_fields")
         result = CheckResult(
             tool="ticket_fields",
             test_name="get_fields",
             passed=success and "Ticket Fields" in response,
             response=response[:400],
             notes="Returns standard and custom field definitions",
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -396,8 +445,9 @@ class ComprehensiveMCPTester:
         )
 
         # wiki_get - WikiStart
-        success, response = await self._call_tool(
-            "wiki_get", {"page_name": "WikiStart"}
+        _args = {"page_name": "WikiStart"}
+        success, response, raw_result = await self._call_tool(
+            "wiki_get", _args
         )
         wiki_version = None
         if success and "Version:" in response:
@@ -414,13 +464,16 @@ class ComprehensiveMCPTester:
             passed=success and "WikiStart" in response,
             response=response[:300],
             notes=f"Version: {wiki_version}" if wiki_version else "",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # wiki_get - raw mode
-        success, response = await self._call_tool(
-            "wiki_get", {"page_name": "WikiStart", "raw": True}
+        _args = {"page_name": "WikiStart", "raw": True}
+        success, response, raw_result = await self._call_tool(
+            "wiki_get", _args
         )
         result = CheckResult(
             tool="wiki_get",
@@ -428,14 +481,17 @@ class ComprehensiveMCPTester:
             passed=success and "(TracWiki)" in response,
             response=response[:300],
             notes="Raw TracWiki format returned",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # wiki_get - specific version (if version > 1)
         if wiki_version and wiki_version > 1:
-            success, response = await self._call_tool(
-                "wiki_get", {"page_name": "WikiStart", "version": 1}
+            _args = {"page_name": "WikiStart", "version": 1}
+            success, response, raw_result = await self._call_tool(
+                "wiki_get", _args
             )
             result = CheckResult(
                 tool="wiki_get",
@@ -443,13 +499,16 @@ class ComprehensiveMCPTester:
                 passed=success and "Version: 1" in response,
                 response=response[:200],
                 notes="Retrieved historical version 1",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
         # wiki_search
-        success, response = await self._call_tool(
-            "wiki_search", {"query": "wiki"}
+        _args = {"query": "wiki"}
+        success, response, raw_result = await self._call_tool(
+            "wiki_search", _args
         )
         result = CheckResult(
             tool="wiki_search",
@@ -458,13 +517,16 @@ class ComprehensiveMCPTester:
             and ("Found" in response or "No wiki" in response),
             response=response[:300],
             notes="Search for 'wiki' keyword",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # wiki_search - with prefix
-        success, response = await self._call_tool(
-            "wiki_search", {"query": "trac", "prefix": "Trac"}
+        _args = {"query": "trac", "prefix": "Trac"}
+        success, response, raw_result = await self._call_tool(
+            "wiki_search", _args
         )
         result = CheckResult(
             tool="wiki_search",
@@ -472,13 +534,16 @@ class ComprehensiveMCPTester:
             passed=success,
             response=response[:200],
             notes="Filtered by Trac prefix",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # wiki_recent_changes
-        success, response = await self._call_tool(
-            "wiki_recent_changes", {"days_back": 30}
+        _args = {"days_back": 30}
+        success, response, raw_result = await self._call_tool(
+            "wiki_recent_changes", _args
         )
         result = CheckResult(
             tool="wiki_recent_changes",
@@ -491,6 +556,8 @@ class ComprehensiveMCPTester:
             ),
             response=response[:300],
             notes="Retrieved wiki pages modified in last 30 days",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -502,7 +569,7 @@ class ComprehensiveMCPTester:
         )
 
         # milestone_list
-        success, response = await self._call_tool("milestone_list")
+        success, response, raw_result = await self._call_tool("milestone_list")
         milestone_name = None
         if (
             success
@@ -519,14 +586,16 @@ class ComprehensiveMCPTester:
             notes=f"First milestone: {milestone_name}"
             if milestone_name
             else "No milestones found",
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # milestone_get - if we have a milestone
         if milestone_name:
-            success, response = await self._call_tool(
-                "milestone_get", {"name": milestone_name}
+            _args = {"name": milestone_name}
+            success, response, raw_result = await self._call_tool(
+                "milestone_get", _args
             )
             result = CheckResult(
                 tool="milestone_get",
@@ -534,13 +603,16 @@ class ComprehensiveMCPTester:
                 passed=success and "Milestone:" in response,
                 response=response[:300],
                 notes=f"Retrieved milestone: {milestone_name}",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # milestone_get - raw mode
-            success, response = await self._call_tool(
-                "milestone_get", {"name": milestone_name, "raw": True}
+            _args = {"name": milestone_name, "raw": True}
+            success, response, raw_result = await self._call_tool(
+                "milestone_get", _args
             )
             result = CheckResult(
                 tool="milestone_get",
@@ -548,6 +620,8 @@ class ComprehensiveMCPTester:
                 passed=success,
                 response=response[:200],
                 notes="Raw TracWiki format for description",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -582,14 +656,14 @@ This is a **Markdown** test.
 print("hello world")
 ```
 """
-        success, response = await self._call_tool(
-            "ticket_create",
-            {
-                "summary": summary,
-                "description": description,
-                "ticket_type": "task",
-                "keywords": "mcp-test,auto-delete",
-            },
+        _args = {
+            "summary": summary,
+            "description": description,
+            "ticket_type": "task",
+            "keywords": "mcp-test,auto-delete",
+        }
+        success, response, raw_result = await self._call_tool(
+            "ticket_create", _args,
         )
 
         if success and "Created ticket #" in response:
@@ -608,15 +682,17 @@ print("hello world")
             notes=f"Created ticket #{self.test_ticket_id}"
             if self.test_ticket_id
             else "Failed to extract ticket ID",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         if self.test_ticket_id:
             # Verify Markdown conversion
-            _, verify_response = await self._call_tool(
-                "ticket_get",
-                {"ticket_id": self.test_ticket_id, "raw": True},
+            _verify_args = {"ticket_id": self.test_ticket_id, "raw": True}
+            _, verify_response, _verify_raw = await self._call_tool(
+                "ticket_get", _verify_args,
             )
             # Check for TracWiki markers ('''bold''' instead of **bold**)
             has_tracwiki = (
@@ -632,17 +708,19 @@ print("hello world")
                 notes="Verified Markdown converted to TracWiki"
                 if has_tracwiki
                 else "Conversion may not have occurred",
+                call_args=_verify_args,
+                **_extract_raw_fields(_verify_raw),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # ticket_update - add comment
-            success, response = await self._call_tool(
-                "ticket_update",
-                {
-                    "ticket_id": self.test_ticket_id,
-                    "comment": "### Update Comment\n\nAdding a **formatted** comment.",
-                },
+            _args = {
+                "ticket_id": self.test_ticket_id,
+                "comment": "### Update Comment\n\nAdding a **formatted** comment.",
+            }
+            success, response, raw_result = await self._call_tool(
+                "ticket_update", _args,
             )
             result = CheckResult(
                 tool="ticket_update",
@@ -650,18 +728,20 @@ print("hello world")
                 passed=success and "Updated ticket" in response,
                 response=response,
                 notes="Comment with Markdown formatting",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # ticket_update - change fields
-            success, response = await self._call_tool(
-                "ticket_update",
-                {
-                    "ticket_id": self.test_ticket_id,
-                    "priority": "major",  # Use valid Trac priority value
-                    "keywords": "mcp-test,auto-delete,updated",
-                },
+            _args = {
+                "ticket_id": self.test_ticket_id,
+                "priority": "major",  # Use valid Trac priority value
+                "keywords": "mcp-test,auto-delete,updated",
+            }
+            success, response, raw_result = await self._call_tool(
+                "ticket_update", _args,
             )
             result = CheckResult(
                 tool="ticket_update",
@@ -669,6 +749,8 @@ print("hello world")
                 passed=success and "Updated ticket" in response,
                 response=response,
                 notes="Updated priority and keywords",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -700,13 +782,13 @@ print('hello')
 - [External Link](https://example.com)
 - WikiStart (internal link)
 """
-        success, response = await self._call_tool(
-            "wiki_create",
-            {
-                "page_name": self.test_wiki_page,
-                "content": content,
-                "comment": "MCP test page creation",
-            },
+        _args = {
+            "page_name": self.test_wiki_page,
+            "content": content,
+            "comment": "MCP test page creation",
+        }
+        success, response, raw_result = await self._call_tool(
+            "wiki_create", _args,
         )
 
         result = CheckResult(
@@ -717,13 +799,15 @@ print('hello')
             notes=f"Created page: {self.test_wiki_page}"
             if success
             else "Creation failed",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         if success:
             # Verify creation
-            _, verify_response = await self._call_tool(
+            _, verify_response, _raw = await self._call_tool(
                 "wiki_get",
                 {"page_name": self.test_wiki_page, "raw": True},
             )
@@ -738,17 +822,19 @@ print('hello')
                 passed=has_tracwiki,
                 response=verify_response[:400],
                 notes="Verified Markdown converted to TracWiki",
+                call_args={"page_name": self.test_wiki_page, "raw": True},
+                **_extract_raw_fields(_raw),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # wiki_create - duplicate (should fail)
-            success, response = await self._call_tool(
-                "wiki_create",
-                {
-                    "page_name": self.test_wiki_page,
-                    "content": "Duplicate content",
-                },
+            _args = {
+                "page_name": self.test_wiki_page,
+                "content": "Duplicate content",
+            }
+            success, response, raw_result = await self._call_tool(
+                "wiki_create", _args,
             )
             result = CheckResult(
                 tool="wiki_create",
@@ -757,19 +843,21 @@ print('hello')
                 or "already exists" in response.lower(),
                 response=response,
                 notes="Expected error for duplicate page",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # wiki_update
-            success, response = await self._call_tool(
-                "wiki_update",
-                {
-                    "page_name": self.test_wiki_page,
-                    "content": "# Updated Test Page\n\nThis page was updated.",
-                    "version": 1,
-                    "comment": "MCP test page update",
-                },
+            _args = {
+                "page_name": self.test_wiki_page,
+                "content": "# Updated Test Page\n\nThis page was updated.",
+                "version": 1,
+                "comment": "MCP test page update",
+            }
+            success, response, raw_result = await self._call_tool(
+                "wiki_update", _args,
             )
             result = CheckResult(
                 tool="wiki_update",
@@ -781,19 +869,21 @@ print('hello')
                 ),
                 response=response,
                 notes="Updated to version 2",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # wiki_update - version conflict
-            success, response = await self._call_tool(
-                "wiki_update",
-                {
-                    "page_name": self.test_wiki_page,
-                    "content": "Conflict content",
-                    "version": 1,
-                    "comment": "Should conflict",
-                },
+            _args = {
+                "page_name": self.test_wiki_page,
+                "content": "Conflict content",
+                "version": 1,
+                "comment": "Should conflict",
+            }
+            success, response, raw_result = await self._call_tool(
+                "wiki_update", _args,
             )
             # Note: Some Trac versions don't enforce optimistic locking
             result = CheckResult(
@@ -803,6 +893,8 @@ print('hello')
                 or "Updated wiki page" in response,
                 response=response,
                 notes="Tested version conflict detection (may not be enforced by server)",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -828,8 +920,9 @@ print('hello')
 
         try:
             # wiki_file_detect_format
-            success, response = await self._call_tool(
-                "wiki_file_detect_format", {"file_path": test_md_path}
+            _args = {"file_path": test_md_path}
+            success, response, raw_result = await self._call_tool(
+                "wiki_file_detect_format", _args
             )
             result = CheckResult(
                 tool="wiki_file_detect_format",
@@ -837,19 +930,21 @@ print('hello')
                 passed=success and "markdown" in response.lower(),
                 response=response[:200],
                 notes="Detected format of .md file",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # wiki_file_push - push test file to wiki
             test_wiki_file_page = f"MCPFileTest_{self.timestamp}"
-            success, response = await self._call_tool(
-                "wiki_file_push",
-                {
-                    "file_path": test_md_path,
-                    "page_name": test_wiki_file_page,
-                    "comment": "MCP file push test",
-                },
+            _args = {
+                "file_path": test_md_path,
+                "page_name": test_wiki_file_page,
+                "comment": "MCP file push test",
+            }
+            success, response, raw_result = await self._call_tool(
+                "wiki_file_push", _args,
             )
             result = CheckResult(
                 tool="wiki_file_push",
@@ -858,6 +953,8 @@ print('hello')
                 and ("Created" in response or "Updated" in response),
                 response=response[:200],
                 notes=f"Pushed file to wiki page: {test_wiki_file_page}",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -868,13 +965,13 @@ print('hello')
                     tempfile.gettempdir(),
                     f"mcp_pull_{self.timestamp}.md",
                 )
-                success, response = await self._call_tool(
-                    "wiki_file_pull",
-                    {
-                        "page_name": test_wiki_file_page,
-                        "file_path": pull_path,
-                        "format": "markdown",
-                    },
+                _args = {
+                    "page_name": test_wiki_file_page,
+                    "file_path": pull_path,
+                    "format": "markdown",
+                }
+                success, response, raw_result = await self._call_tool(
+                    "wiki_file_pull", _args,
                 )
                 result = CheckResult(
                     tool="wiki_file_pull",
@@ -882,6 +979,8 @@ print('hello')
                     passed=success and "Pulled" in response,
                     response=response[:200],
                     notes=f"Pulled wiki page to: {pull_path}",
+                    call_args=_args,
+                    **_extract_raw_fields(raw_result),
                 )
                 self.report.results.append(result)
                 self._log_result(result)
@@ -920,15 +1019,15 @@ print('hello')
 
         # milestone_create
         self.test_milestone = f"MCP-Test-{self.timestamp}"
-        success, response = await self._call_tool(
-            "milestone_create",
-            {
-                "name": self.test_milestone,
-                "attributes": {
-                    "due": "2026-12-31T23:59:59",
-                    "description": "Test milestone for MCP validation",
-                },
+        _args = {
+            "name": self.test_milestone,
+            "attributes": {
+                "due": "2026-12-31T23:59:59",
+                "description": "Test milestone for MCP validation",
             },
+        }
+        success, response, raw_result = await self._call_tool(
+            "milestone_create", _args,
         )
 
         result = CheckResult(
@@ -939,14 +1038,17 @@ print('hello')
             notes=f"Created: {self.test_milestone}"
             if success
             else "Creation failed",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         if success:
             # Verify creation
-            verify_success, verify_response = await self._call_tool(
-                "milestone_get", {"name": self.test_milestone}
+            _verify_args = {"name": self.test_milestone}
+            verify_success, verify_response, _verify_raw = await self._call_tool(
+                "milestone_get", _verify_args
             )
             result = CheckResult(
                 tool="milestone_create",
@@ -955,20 +1057,22 @@ print('hello')
                 and self.test_milestone in verify_response,
                 response=verify_response[:200],
                 notes="Verified milestone exists",
+                call_args=_verify_args,
+                **_extract_raw_fields(_verify_raw),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # milestone_update
-            success, response = await self._call_tool(
-                "milestone_update",
-                {
-                    "name": self.test_milestone,
-                    "attributes": {
-                        "description": "Updated description",
-                        "completed": "2026-02-04T12:00:00",
-                    },
+            _args = {
+                "name": self.test_milestone,
+                "attributes": {
+                    "description": "Updated description",
+                    "completed": "2026-02-04T12:00:00",
                 },
+            }
+            success, response, raw_result = await self._call_tool(
+                "milestone_update", _args,
             )
             result = CheckResult(
                 tool="milestone_update",
@@ -976,6 +1080,8 @@ print('hello')
                 passed=success and "Updated milestone" in response,
                 response=response,
                 notes="Updated description and completed date",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -999,8 +1105,9 @@ print('hello')
             for i in range(BATCH_TEST_SIZE)
         ]
 
-        success, response = await self._call_tool(
-            "ticket_batch_create", {"tickets": tickets}
+        _args = {"tickets": tickets}
+        success, response, raw_result = await self._call_tool(
+            "ticket_batch_create", _args
         )
 
         # Extract created ticket IDs from response lines like "  - #123: ..."
@@ -1017,6 +1124,8 @@ print('hello')
             notes=f"Created {len(created_ids)} tickets: #{min(created_ids)}..#{max(created_ids)}"
             if created_ids
             else "No tickets created",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -1024,8 +1133,9 @@ print('hello')
         # --- ticket_batch_create: verify a sample ticket exists ---
         if created_ids:
             sample_id = created_ids[0]
-            verify_ok, verify_resp = await self._call_tool(
-                "ticket_get", {"ticket_id": sample_id}
+            _verify_args = {"ticket_id": sample_id}
+            verify_ok, verify_resp, _verify_raw = await self._call_tool(
+                "ticket_get", _verify_args
             )
             result = CheckResult(
                 tool="ticket_batch_create",
@@ -1034,6 +1144,8 @@ print('hello')
                 and f"Ticket #{sample_id}" in verify_resp,
                 response=verify_resp[:200],
                 notes=f"Spot-checked ticket #{sample_id}",
+                call_args=_verify_args,
+                **_extract_raw_fields(_verify_raw),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -1050,8 +1162,9 @@ print('hello')
                 "description": "Also valid",
             },
         ]
-        success, response = await self._call_tool(
-            "ticket_batch_create", {"tickets": mixed_tickets}
+        _args = {"tickets": mixed_tickets}
+        success, response, raw_result = await self._call_tool(
+            "ticket_batch_create", _args
         )
 
         # Parse any newly created IDs for cleanup
@@ -1065,13 +1178,16 @@ print('hello')
             and "1 failed" in response,
             response=response[:400],
             notes="1 ticket missing summary should fail, 2 should succeed",
+            call_args=_args,
+            **_extract_raw_fields(raw_result),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # --- ticket_batch_create: empty list validation ---
-        _, response = await self._call_tool(
-            "ticket_batch_create", {"tickets": []}
+        _args = {"tickets": []}
+        _, response, _raw = await self._call_tool(
+            "ticket_batch_create", _args
         )
         result = CheckResult(
             tool="ticket_batch_create",
@@ -1080,6 +1196,8 @@ print('hello')
             or "required" in response.lower(),
             response=response[:200],
             notes="Expected validation error for empty tickets list",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -1095,8 +1213,9 @@ print('hello')
                 for tid in self.test_batch_ticket_ids
             ]
 
-            success, response = await self._call_tool(
-                "ticket_batch_update", {"updates": updates}
+            _args = {"updates": updates}
+            success, response, raw_result = await self._call_tool(
+                "ticket_batch_update", _args
             )
             expected_count = len(self.test_batch_ticket_ids)
 
@@ -1108,14 +1227,17 @@ print('hello')
                 in response,
                 response=response[:400],
                 notes=f"Updated {expected_count} tickets with keywords + comment",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             # Spot-check that update applied
             sample_id = self.test_batch_ticket_ids[0]
-            verify_ok, verify_resp = await self._call_tool(
-                "ticket_get", {"ticket_id": sample_id}
+            _verify_args = {"ticket_id": sample_id}
+            verify_ok, verify_resp, _verify_raw = await self._call_tool(
+                "ticket_get", _verify_args
             )
             result = CheckResult(
                 tool="ticket_batch_update",
@@ -1123,13 +1245,16 @@ print('hello')
                 passed=verify_ok and "batch-updated" in verify_resp,
                 response=verify_resp[:300],
                 notes=f"Verified keyword added to ticket #{sample_id}",
+                call_args=_verify_args,
+                **_extract_raw_fields(_verify_raw),
             )
             self.report.results.append(result)
             self._log_result(result)
 
         # --- ticket_batch_update: empty list validation ---
-        _, response = await self._call_tool(
-            "ticket_batch_update", {"updates": []}
+        _args = {"updates": []}
+        _, response, _raw = await self._call_tool(
+            "ticket_batch_update", _args
         )
         result = CheckResult(
             tool="ticket_batch_update",
@@ -1138,15 +1263,17 @@ print('hello')
             or "required" in response.lower(),
             response=response[:200],
             notes="Expected validation error for empty updates list",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # --- ticket_batch_delete: delete all created tickets ---
         if self.test_batch_ticket_ids:
-            success, response = await self._call_tool(
-                "ticket_batch_delete",
-                {"ticket_ids": self.test_batch_ticket_ids},
+            _args = {"ticket_ids": self.test_batch_ticket_ids}
+            success, response, raw_result = await self._call_tool(
+                "ticket_batch_delete", _args,
             )
             expected_count = len(self.test_batch_ticket_ids)
 
@@ -1158,6 +1285,8 @@ print('hello')
                 in response,
                 response=response[:400],
                 notes=f"Deleted {expected_count} tickets",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
@@ -1169,8 +1298,9 @@ print('hello')
             ):
                 # Spot-check a ticket is gone
                 sample_id = self.test_batch_ticket_ids[0]
-                _, verify_resp = await self._call_tool(
-                    "ticket_get", {"ticket_id": sample_id}
+                _verify_args = {"ticket_id": sample_id}
+                _, verify_resp, _verify_raw = await self._call_tool(
+                    "ticket_get", _verify_args
                 )
                 result = CheckResult(
                     tool="ticket_batch_delete",
@@ -1179,6 +1309,8 @@ print('hello')
                     or "error" in verify_resp.lower(),
                     response=verify_resp[:200],
                     notes=f"Confirmed ticket #{sample_id} no longer exists",
+                    call_args=_verify_args,
+                    **_extract_raw_fields(_verify_raw),
                 )
                 self.report.results.append(result)
                 self._log_result(result)
@@ -1186,8 +1318,9 @@ print('hello')
                 self.test_batch_ticket_ids = []  # All cleaned up
 
         # --- ticket_batch_delete: empty list validation ---
-        _, response = await self._call_tool(
-            "ticket_batch_delete", {"ticket_ids": []}
+        _args = {"ticket_ids": []}
+        _, response, _raw = await self._call_tool(
+            "ticket_batch_delete", _args
         )
         result = CheckResult(
             tool="ticket_batch_delete",
@@ -1196,6 +1329,8 @@ print('hello')
             or "required" in response.lower(),
             response=response[:200],
             notes="Expected validation error for empty ticket_ids list",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -1206,8 +1341,9 @@ print('hello')
 
         # wiki_delete
         if self.test_wiki_page:
-            success, response = await self._call_tool(
-                "wiki_delete", {"page_name": self.test_wiki_page}
+            _args = {"page_name": self.test_wiki_page}
+            success, response, raw_result = await self._call_tool(
+                "wiki_delete", _args
             )
             result = CheckResult(
                 tool="wiki_delete",
@@ -1215,14 +1351,17 @@ print('hello')
                 passed=success and "Deleted" in response,
                 response=response,
                 notes=f"Deleted: {self.test_wiki_page}",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             if success:
                 # Verify deletion
-                _, verify_response = await self._call_tool(
-                    "wiki_get", {"page_name": self.test_wiki_page}
+                _verify_args = {"page_name": self.test_wiki_page}
+                _, verify_response, _verify_raw = await self._call_tool(
+                    "wiki_get", _verify_args
                 )
                 result = CheckResult(
                     tool="wiki_delete",
@@ -1231,6 +1370,8 @@ print('hello')
                     or "does not exist" in verify_response.lower(),
                     response=verify_response[:200],
                     notes="Confirmed page no longer exists",
+                    call_args=_verify_args,
+                    **_extract_raw_fields(_verify_raw),
                 )
                 self.report.results.append(result)
                 self._log_result(result)
@@ -1238,8 +1379,9 @@ print('hello')
 
         # milestone_delete
         if self.test_milestone:
-            success, response = await self._call_tool(
-                "milestone_delete", {"name": self.test_milestone}
+            _args = {"name": self.test_milestone}
+            success, response, raw_result = await self._call_tool(
+                "milestone_delete", _args
             )
             result = CheckResult(
                 tool="milestone_delete",
@@ -1247,14 +1389,17 @@ print('hello')
                 passed=success and "Deleted" in response,
                 response=response,
                 notes=f"Deleted: {self.test_milestone}",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             if success:
                 # Verify deletion
-                _, verify_response = await self._call_tool(
-                    "milestone_get", {"name": self.test_milestone}
+                _verify_args = {"name": self.test_milestone}
+                _, verify_response, _verify_raw = await self._call_tool(
+                    "milestone_get", _verify_args
                 )
                 result = CheckResult(
                     tool="milestone_delete",
@@ -1263,6 +1408,8 @@ print('hello')
                     or "error" in verify_response.lower(),
                     response=verify_response[:200],
                     notes="Confirmed milestone no longer exists",
+                    call_args=_verify_args,
+                    **_extract_raw_fields(_verify_raw),
                 )
                 self.report.results.append(result)
                 self._log_result(result)
@@ -1270,8 +1417,9 @@ print('hello')
 
         # ticket_delete
         if self.test_ticket_id:
-            success, response = await self._call_tool(
-                "ticket_delete", {"ticket_id": self.test_ticket_id}
+            _args = {"ticket_id": self.test_ticket_id}
+            success, response, raw_result = await self._call_tool(
+                "ticket_delete", _args
             )
             result = CheckResult(
                 tool="ticket_delete",
@@ -1283,14 +1431,17 @@ print('hello')
                 ),
                 response=response[:200],
                 notes=f"Deleted test ticket #{self.test_ticket_id}",
+                call_args=_args,
+                **_extract_raw_fields(raw_result),
             )
             self.report.results.append(result)
             self._log_result(result)
 
             if success:
                 # Verify deletion
-                _, verify_response = await self._call_tool(
-                    "ticket_get", {"ticket_id": self.test_ticket_id}
+                _verify_args = {"ticket_id": self.test_ticket_id}
+                _, verify_response, _verify_raw = await self._call_tool(
+                    "ticket_get", _verify_args
                 )
                 result = CheckResult(
                     tool="ticket_delete",
@@ -1299,6 +1450,8 @@ print('hello')
                     or "error" in verify_response.lower(),
                     response=verify_response[:200],
                     notes="Confirmed ticket no longer exists",
+                    call_args=_verify_args,
+                    **_extract_raw_fields(_verify_raw),
                 )
                 self.report.results.append(result)
                 self._log_result(result)
@@ -1311,8 +1464,9 @@ print('hello')
         print(f"\n{self._color('=== Phase 5: Error Handling ===')}")
 
         # ticket_get - non-existent
-        _, response = await self._call_tool(
-            "ticket_get", {"ticket_id": 99999999}
+        _args = {"ticket_id": 99999999}
+        _, response, _raw = await self._call_tool(
+            "ticket_get", _args
         )
         result = CheckResult(
             tool="ticket_get",
@@ -1321,13 +1475,16 @@ print('hello')
             or "error" in response.lower(),
             response=response[:200],
             notes="Expected not_found error",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # ticket_delete - non-existent
-        _, response = await self._call_tool(
-            "ticket_delete", {"ticket_id": 99999999}
+        _args = {"ticket_id": 99999999}
+        _, response, _raw = await self._call_tool(
+            "ticket_delete", _args
         )
         result = CheckResult(
             tool="ticket_delete",
@@ -1336,14 +1493,16 @@ print('hello')
             or "error" in response.lower(),
             response=response[:200],
             notes="Expected not_found error",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # wiki_get - non-existent
-        _, response = await self._call_tool(
-            "wiki_get",
-            {"page_name": "NonExistentPage_DoesNotExist_12345"},
+        _args = {"page_name": "NonExistentPage_DoesNotExist_12345"}
+        _, response, _raw = await self._call_tool(
+            "wiki_get", _args,
         )
         result = CheckResult(
             tool="wiki_get",
@@ -1352,13 +1511,16 @@ print('hello')
             or "does not exist" in response.lower(),
             response=response[:200],
             notes="Expected not_found error",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # milestone_get - non-existent
-        _, response = await self._call_tool(
-            "milestone_get", {"name": "NonExistent-Milestone-12345"}
+        _args = {"name": "NonExistent-Milestone-12345"}
+        _, response, _raw = await self._call_tool(
+            "milestone_get", _args
         )
         result = CheckResult(
             tool="milestone_get",
@@ -1367,14 +1529,16 @@ print('hello')
             or "error" in response.lower(),
             response=response[:200],
             notes="Expected not_found error",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # wiki_delete - non-existent
-        _, response = await self._call_tool(
-            "wiki_delete",
-            {"page_name": "NonExistentPage_ToDelete_12345"},
+        _args = {"page_name": "NonExistentPage_ToDelete_12345"}
+        _, response, _raw = await self._call_tool(
+            "wiki_delete", _args,
         )
         result = CheckResult(
             tool="wiki_delete",
@@ -1383,13 +1547,16 @@ print('hello')
             or "does not exist" in response.lower(),
             response=response[:200],
             notes="Expected not_found error",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
 
         # ticket_create - missing required field
-        _, response = await self._call_tool(
-            "ticket_create", {"description": "No summary"}
+        _args = {"description": "No summary"}
+        _, response, _raw = await self._call_tool(
+            "ticket_create", _args
         )
         result = CheckResult(
             tool="ticket_create",
@@ -1398,6 +1565,8 @@ print('hello')
             or "required" in response.lower(),
             response=response[:200],
             notes="Expected validation_error",
+            call_args=_args,
+            **_extract_raw_fields(_raw),
         )
         self.report.results.append(result)
         self._log_result(result)
@@ -1410,7 +1579,7 @@ print('hello')
 
         # Batch-delete leftover batch tickets (if batch delete test failed)
         if self.test_batch_ticket_ids:
-            success, _ = await self._call_tool(
+            success, _, _raw = await self._call_tool(
                 "ticket_batch_delete",
                 {"ticket_ids": self.test_batch_ticket_ids},
             )
@@ -1449,7 +1618,7 @@ print('hello')
 
         # Delete test wiki page if still exists
         if self.test_wiki_page:
-            success, _ = await self._call_tool(
+            success, _, _raw = await self._call_tool(
                 "wiki_delete", {"page_name": self.test_wiki_page}
             )
             if success:
@@ -1464,7 +1633,7 @@ print('hello')
 
         # Delete test milestone if still exists
         if self.test_milestone:
-            success, _ = await self._call_tool(
+            success, _, _raw = await self._call_tool(
                 "milestone_delete", {"name": self.test_milestone}
             )
             if success:
@@ -1579,7 +1748,7 @@ print('hello')
                         ]
                     )
 
-                status = "✓ PASS" if result.passed else "✗ FAIL"
+                status = "PASS" if result.passed else "FAIL"
                 report_lines.append(f"**{result.test_name}:** {status}")
                 if result.notes:
                     report_lines.append(f"- Notes: {result.notes}")
