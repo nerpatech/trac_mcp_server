@@ -12,6 +12,8 @@ Features:
 - Tests batch operations with parallel execution
 - Generates comprehensive test report
 - Automatic cleanup of test resources
+- Generates reference output showing tool presentation, call arguments, and full return values
+- Tool Catalog section shows complete inputSchema for all tools (LLM tool listing POV)
 """
 
 import argparse
@@ -35,7 +37,7 @@ from trac_mcp_server.core.client import TracClient
 from trac_mcp_server.mcp.tools import ALL_SPECS
 from trac_mcp_server.mcp.tools.registry import ToolRegistry
 
-VERSION = "5.0.0"
+VERSION = "6.0.0"
 
 # Number of tickets to create in batch tests.
 # Keep small for routine testing; increase for load/stress testing.
@@ -1648,6 +1650,29 @@ print('hello')
 
         return cleanup_success
 
+    def _generate_tool_catalog(self) -> list[str]:
+        """Generate Tool Catalog section showing what LLM sees at tool listing time."""
+        lines = [
+            "## Tool Catalog (LLM Tool Presentation)",
+            "",
+            f"**Total tools registered:** {self.registry.tool_count()}",
+            "",
+            "This section shows the exact tool definitions presented to the LLM/agent",
+            "via `list_tools()`. Each entry includes name, description, and full inputSchema.",
+            "",
+        ]
+        for tool in self.registry.list_tools():
+            lines.append(f"### `{tool.name}`")
+            lines.append("")
+            lines.append(f"**Description:** {tool.description}")
+            lines.append("")
+            lines.append("**inputSchema:**")
+            lines.append("```json")
+            lines.append(json.dumps(tool.inputSchema, indent=2))
+            lines.append("```")
+            lines.append("")
+        return lines
+
     def generate_report(self, output_path: str):
         """Generate comprehensive test report"""
         self.report.date = datetime.now().isoformat()
@@ -1725,6 +1750,9 @@ print('hello')
             "",
         ]
 
+        # Insert Tool Catalog section
+        report_lines.extend(self._generate_tool_catalog())
+
         for category, results in results_by_category.items():
             if not results:
                 continue
@@ -1756,6 +1784,50 @@ print('hello')
                     report_lines.append(
                         f"- Error: {result.error[:100]}"
                     )
+
+                # Show call arguments
+                if result.call_args:
+                    report_lines.append(
+                        f"- **Call args:** `{json.dumps(result.call_args, default=str)}`"
+                    )
+                elif result.tool != "ping":
+                    report_lines.append(
+                        "- **Call args:** `{}`  (no arguments)"
+                    )
+
+                # Show structured content if present
+                if result.structured_content is not None:
+                    sc_json = json.dumps(
+                        result.structured_content, indent=2, default=str
+                    )
+                    # Truncate very long structured content to keep report readable
+                    if len(sc_json) > 2000:
+                        sc_json = sc_json[:2000] + "\n  ... (truncated)"
+                    report_lines.append("- **structuredContent:**")
+                    report_lines.append("  ```json")
+                    for sc_line in sc_json.split("\n"):
+                        report_lines.append(f"  {sc_line}")
+                    report_lines.append("  ```")
+
+                # Show isError flag if set
+                if result.is_error is not None:
+                    report_lines.append(
+                        f"- **isError:** `{result.is_error}`"
+                    )
+
+                # Show raw text content (first 500 chars) for reference
+                if result.raw_text_content:
+                    combined_text = "\n---\n".join(
+                        result.raw_text_content
+                    )
+                    if len(combined_text) > 500:
+                        combined_text = (
+                            combined_text[:500] + "... (truncated)"
+                        )
+                    report_lines.append(
+                        f"- **Text content preview:** {combined_text}"
+                    )
+
                 report_lines.append("")
 
         # Issues found section
