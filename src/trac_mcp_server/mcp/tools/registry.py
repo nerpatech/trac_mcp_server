@@ -105,8 +105,9 @@ class ToolRegistry:
             return await spec.handler(client, args)
         except xmlrpc.client.Fault as e:
             domain = _domain_from_tool_name(name)
+            entity_name = _entity_name_from_args(name, args)
             logger.warning("XML-RPC fault in %s: %s", name, e.faultString)
-            return translate_xmlrpc_error(e, domain)
+            return translate_xmlrpc_error(e, domain, entity_name)
         except ValueError as e:
             return build_error_response(
                 "validation_error",
@@ -120,6 +121,20 @@ class ToolRegistry:
                 str(e),
                 "Contact Trac administrator or retry later.",
             )
+
+
+def _entity_name_from_args(name: str, args: dict) -> str | None:
+    """Extract entity name from tool arguments for contextual error messages.
+
+    Maps tool name prefixes to the relevant argument key so that
+    ``translate_xmlrpc_error`` can produce messages like
+    "find pages similar to 'MyPage'" instead of generic ones.
+    """
+    if name.startswith("wiki_"):
+        return args.get("page_name")
+    if name.startswith("milestone_"):
+        return args.get("name")
+    return None
 
 
 def _domain_from_tool_name(name: str) -> str:

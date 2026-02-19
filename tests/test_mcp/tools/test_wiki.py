@@ -17,6 +17,7 @@ from trac_mcp_server.config import Config
 from trac_mcp_server.converters import ConversionResult
 from trac_mcp_server.mcp.tools import WIKI_TOOLS
 from trac_mcp_server.mcp.tools.errors import format_timestamp
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
 from trac_mcp_server.mcp.tools.wiki_read import (
     _handle_get,
     _handle_recent_changes,
@@ -25,14 +26,10 @@ from trac_mcp_server.mcp.tools.wiki_read import (
     encode_cursor,
 )
 from trac_mcp_server.mcp.tools.wiki_write import (
+    WIKI_WRITE_SPECS,
     _handle_create,
     _handle_delete,
     _handle_update,
-)
-
-# For backward compatibility with test that uses handle_wiki_tool
-from trac_mcp_server.mcp.tools.wiki_write import (
-    handle_wiki_write_tool as handle_wiki_tool,
 )
 
 
@@ -827,9 +824,10 @@ class TestHandleDelete(unittest.TestCase):
                 404, "Page not found"
             )
 
-            # Call through handle_wiki_tool to test error translation
+            # Call through ToolRegistry to test error translation
+            registry = ToolRegistry(WIKI_WRITE_SPECS)
             result = asyncio.run(
-                handle_wiki_tool(
+                registry.call_tool(
                     "wiki_delete",
                     {"page_name": "NonExistentPage"},
                     mock_client,
@@ -864,9 +862,10 @@ class TestHandleDelete(unittest.TestCase):
                 403, "Permission denied"
             )
 
-            # Call through handle_wiki_tool to test error translation
+            # Call through ToolRegistry to test error translation
+            registry = ToolRegistry(WIKI_WRITE_SPECS)
             result = asyncio.run(
-                handle_wiki_tool(
+                registry.call_tool(
                     "wiki_delete",
                     {"page_name": "ProtectedPage"},
                     mock_client,
@@ -883,27 +882,19 @@ class TestHandleDelete(unittest.TestCase):
 
 
 class TestHandleWikiTool(unittest.TestCase):
-    """Test handle_wiki_tool dispatcher."""
+    """Test wiki tool dispatch via ToolRegistry."""
 
     def test_unknown_tool(self):
-        """Test handle_wiki_tool returns error for unknown tool."""
-        config = Config(
-            trac_url="http://test", username="test", password="test"
-        )
+        """Test ToolRegistry raises ValueError for unknown tool."""
         mock_client = MagicMock()
-        mock_client.config = config
 
-        result = asyncio.run(
-            handle_wiki_tool("wiki_unknown", {}, mock_client)
-        )
+        registry = ToolRegistry(WIKI_WRITE_SPECS)
 
-        # Should return error response
-        self.assertTrue(result.isError)
-        self.assertEqual(len(result.content), 1)
-        text = result.content[0].text
-
-        self.assertIn("Error (validation_error)", text)
-        self.assertIn("Unknown wiki", text)
+        # ToolRegistry raises ValueError for unregistered tool names
+        with self.assertRaises(ValueError):
+            asyncio.run(
+                registry.call_tool("wiki_unknown", {}, mock_client)
+            )
 
 
 if __name__ == "__main__":

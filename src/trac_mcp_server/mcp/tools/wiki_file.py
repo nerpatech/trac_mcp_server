@@ -144,54 +144,6 @@ def _strip_yaml_frontmatter(content: str) -> str:
     return content
 
 
-async def handle_wiki_file_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle wiki file tool execution.
-
-    Args:
-        name: Tool name (wiki_file_push, wiki_file_pull, wiki_file_detect_format)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with text content and optional structured content
-    """
-    args = arguments or {}
-
-    try:
-        match name:
-            case "wiki_file_push":
-                return await _handle_push(client, args)
-            case "wiki_file_pull":
-                return await _handle_pull(client, args)
-            case "wiki_file_detect_format":
-                return await _handle_detect_format(client, args)
-            case _:
-                raise ValueError(f"Unknown wiki_file tool: {name}")
-
-    except NotImplementedError as e:
-        return build_error_response(
-            "not_implemented",
-            str(e),
-            "This tool is not yet implemented.",
-        )
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
-
-
 async def _handle_push(
     client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:

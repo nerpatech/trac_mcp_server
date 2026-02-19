@@ -15,7 +15,7 @@ import mcp.types as types
 from ...converters import tracwiki_to_markdown
 from ...core.async_utils import run_sync
 from ...core.client import TracClient
-from .errors import build_error_response, translate_xmlrpc_error
+from .errors import build_error_response
 from .registry import ToolSpec
 
 # Tool definitions for list_tools()
@@ -125,58 +125,6 @@ MILESTONE_TOOLS = [
         },
     ),
 ]
-
-
-async def handle_milestone_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle milestone tool execution.
-
-    Args:
-        name: Tool name (milestone_list, milestone_get, etc.)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with both text content and structured JSON
-
-    Raises:
-        ValueError: If tool name is unknown
-    """
-    # Ensure arguments is a dict
-    args = arguments or {}
-
-    try:
-        match name:
-            case "milestone_list":
-                return await _handle_list(client, args)
-            case "milestone_get":
-                return await _handle_get(client, args)
-            case "milestone_create":
-                return await _handle_create(client, args)
-            case "milestone_update":
-                return await _handle_update(client, args)
-            case "milestone_delete":
-                return await _handle_delete(client, args)
-            case _:
-                raise ValueError(f"Unknown milestone tool: {name}")
-
-    except xmlrpc.client.Fault as e:
-        return translate_xmlrpc_error(e, "milestone")
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
 
 
 async def _handle_list(

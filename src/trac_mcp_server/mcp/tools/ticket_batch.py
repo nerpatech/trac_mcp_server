@@ -104,51 +104,6 @@ TICKET_BATCH_TOOLS = [
 ]
 
 
-async def handle_ticket_batch_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle batch ticket tool execution.
-
-    Args:
-        name: Tool name (ticket_batch_create, ticket_batch_delete, ticket_batch_update)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with per-item results, or CallToolResult with isError=True for errors
-
-    Raises:
-        ValueError: If tool name is unknown
-    """
-    args = arguments or {}
-
-    try:
-        match name:
-            case "ticket_batch_create":
-                return await _handle_batch_create(client, args)
-            case "ticket_batch_delete":
-                return await _handle_batch_delete(client, args)
-            case "ticket_batch_update":
-                return await _handle_batch_update(client, args)
-            case _:
-                raise ValueError(f"Unknown ticket batch tool: {name}")
-
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
-
-
 async def _handle_batch_create(
     client: TracClient, args: dict
 ) -> types.CallToolResult:

@@ -17,11 +17,7 @@ import mcp.types as types
 from ...converters import tracwiki_to_markdown
 from ...core.async_utils import run_sync, run_sync_limited
 from ...core.client import TracClient
-from .errors import (
-    build_error_response,
-    format_timestamp,
-    translate_xmlrpc_error,
-)
+from .errors import build_error_response, format_timestamp
 from .registry import ToolSpec
 
 # Tool definitions for list_tools()
@@ -145,54 +141,6 @@ def decode_cursor(cursor: str) -> tuple[int, int]:
         return cursor_data["offset"], cursor_data["total"]
     except (KeyError, json.JSONDecodeError, ValueError) as e:
         raise ValueError(f"Invalid cursor: {e}") from e
-
-
-async def handle_wiki_read_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle read-only wiki tool execution.
-
-    Args:
-        name: Tool name (wiki_get, wiki_search, wiki_recent_changes)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with both text content and structured JSON
-
-    Raises:
-        ValueError: If tool name is unknown
-    """
-    # Ensure arguments is a dict
-    args = arguments or {}
-
-    try:
-        match name:
-            case "wiki_get":
-                return await _handle_get(client, args)
-            case "wiki_search":
-                return await _handle_search(client, args)
-            case "wiki_recent_changes":
-                return await _handle_recent_changes(client, args)
-            case _:
-                raise ValueError(f"Unknown wiki read tool: {name}")
-
-    except xmlrpc.client.Fault as e:
-        return translate_xmlrpc_error(e, "wiki", args.get("page_name"))
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
 
 
 async def _handle_get(

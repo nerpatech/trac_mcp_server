@@ -17,11 +17,7 @@ from ...core.async_utils import (
     run_sync_limited,
 )
 from ...core.client import TracClient
-from .errors import (
-    build_error_response,
-    format_timestamp,
-    translate_xmlrpc_error,
-)
+from .errors import build_error_response, format_timestamp
 from .registry import ToolSpec
 
 # Tool definitions for list_tools()
@@ -112,58 +108,6 @@ TICKET_READ_TOOLS = [
         },
     ),
 ]
-
-
-async def handle_ticket_read_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle read-only ticket tool execution.
-
-    Args:
-        name: Tool name (ticket_search, ticket_get, ticket_changelog, ticket_fields, ticket_actions)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with both text content and structured JSON, or CallToolResult with isError=True for error cases
-
-    Raises:
-        ValueError: If tool name is unknown
-    """
-    # Ensure arguments is a dict
-    args = arguments or {}
-
-    try:
-        match name:
-            case "ticket_search":
-                return await _handle_search(client, args)
-            case "ticket_get":
-                return await _handle_get(client, args)
-            case "ticket_changelog":
-                return await _handle_changelog(client, args)
-            case "ticket_fields":
-                return await _handle_fields(client, args)
-            case "ticket_actions":
-                return await _handle_actions(client, args)
-            case _:
-                raise ValueError(f"Unknown ticket read tool: {name}")
-
-    except xmlrpc.client.Fault as e:
-        return translate_xmlrpc_error(e, "ticket")
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
 
 
 async def _handle_search(

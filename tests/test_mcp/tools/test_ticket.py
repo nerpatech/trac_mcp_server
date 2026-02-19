@@ -4,7 +4,7 @@ import asyncio
 import unittest
 import xmlrpc.client
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import mcp.types as types
 
@@ -12,21 +12,20 @@ from trac_mcp_server.config import Config
 from trac_mcp_server.converters.common import ConversionResult
 from trac_mcp_server.core.client import TracClient
 from trac_mcp_server.mcp.tools import TICKET_TOOLS
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
 from trac_mcp_server.mcp.tools.ticket_read import (
+    TICKET_READ_SPECS,
     _handle_actions,
     _handle_changelog,
     _handle_fields,
     _handle_get,
     _handle_search,
-    handle_ticket_read_tool,
 )
 from trac_mcp_server.mcp.tools.ticket_write import (
+    TICKET_WRITE_SPECS,
     _handle_create,
     _handle_delete,
     _handle_update,
-)
-from trac_mcp_server.mcp.tools.ticket_write import (
-    handle_ticket_write_tool as handle_ticket_tool,
 )
 
 
@@ -103,7 +102,7 @@ class TestHandleDelete(unittest.TestCase):
         self.assertIn("ticket_id is required", result.content[0].text)
 
     def test_handle_delete_ticket_not_found(self):
-        """Test _handle_delete handles ticket not found via handle_ticket_tool error translation."""
+        """Test _handle_delete handles ticket not found via registry error translation."""
         config = Config(
             trac_url="http://test", username="test", password="test"
         )
@@ -117,8 +116,9 @@ class TestHandleDelete(unittest.TestCase):
                 404, "Ticket 99999 not found"
             )
 
+            registry = ToolRegistry(TICKET_WRITE_SPECS)
             result = asyncio.run(
-                handle_ticket_tool(
+                registry.call_tool(
                     "ticket_delete", {"ticket_id": 99999}, mock_client
                 )
             )
@@ -147,8 +147,9 @@ class TestHandleDelete(unittest.TestCase):
                 ),  # delete_ticket fails
             ]
 
+            registry = ToolRegistry(TICKET_WRITE_SPECS)
             result = asyncio.run(
-                handle_ticket_tool(
+                registry.call_tool(
                     "ticket_delete", {"ticket_id": 42}, mock_client
                 )
             )
@@ -400,8 +401,9 @@ class TestHandleTicketCreate(unittest.TestCase):
                 500, "Internal server error"
             )
 
+            registry = ToolRegistry(TICKET_WRITE_SPECS)
             result = asyncio.run(
-                handle_ticket_tool(
+                registry.call_tool(
                     "ticket_create",
                     {
                         "summary": "Test",
@@ -433,8 +435,9 @@ class TestHandleTicketCreate(unittest.TestCase):
                 403, "TICKET_CREATE permission denied"
             )
 
+            registry = ToolRegistry(TICKET_WRITE_SPECS)
             result = asyncio.run(
-                handle_ticket_tool(
+                registry.call_tool(
                     "ticket_create",
                     {
                         "summary": "Test",
@@ -634,8 +637,9 @@ class TestHandleTicketUpdate(unittest.TestCase):
                 404, "Ticket 99999 not found"
             )
 
+            registry = ToolRegistry(TICKET_WRITE_SPECS)
             result = asyncio.run(
-                handle_ticket_tool(
+                registry.call_tool(
                     "ticket_update",
                     {
                         "ticket_id": 99999,
@@ -658,8 +662,9 @@ class TestHandleTicketUpdate(unittest.TestCase):
                 403, "TICKET_MODIFY permission denied"
             )
 
+            registry = ToolRegistry(TICKET_WRITE_SPECS)
             result = asyncio.run(
-                handle_ticket_tool(
+                registry.call_tool(
                     "ticket_update",
                     {
                         "ticket_id": 42,
@@ -722,164 +727,164 @@ class TestHandleTicketUpdate(unittest.TestCase):
 
 
 class TestHandleTicketWriteTool(unittest.TestCase):
-    """Tests for handle_ticket_write_tool dispatcher."""
+    """Tests for ToolRegistry dispatch of ticket write tools."""
 
     def setUp(self):
         self.mock_client = MagicMock()
+        self.registry = ToolRegistry(TICKET_WRITE_SPECS)
+
+    def _patch_handler(self, tool_name, mock_handler):
+        """Replace a handler in the registry with a mock.
+
+        ToolSpec is frozen so we replace the entire spec entry, preserving
+        the original tool and permissions but swapping the handler.
+        """
+        from trac_mcp_server.mcp.tools.registry import ToolSpec
+
+        orig = self.registry._specs[tool_name]
+        self.registry._specs[tool_name] = ToolSpec(
+            tool=orig.tool,
+            permissions=orig.permissions,
+            handler=mock_handler,
+        )
 
     def test_routes_to_create(self):
-        """Dispatcher routes ticket_create to _handle_create."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_write._handle_create"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(
-                        type="text", text="Created ticket #1: Test"
-                    )
-                ]
-            )
-
-            result = asyncio.run(
-                handle_ticket_tool(
-                    "ticket_create",
-                    {
-                        "summary": "Test",
-                        "description": "Desc",
-                    },
-                    self.mock_client,
+        """Registry routes ticket_create to _handle_create."""
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text", text="Created ticket #1: Test"
                 )
-            )
+            ]
+        )
+        self._patch_handler("ticket_create", mock_handler)
 
-            mock_handler.assert_awaited_once_with(
-                self.mock_client,
+        result = asyncio.run(
+            self.registry.call_tool(
+                "ticket_create",
                 {
                     "summary": "Test",
                     "description": "Desc",
                 },
+                self.mock_client,
             )
-            self.assertEqual(
-                result.content[0].text, "Created ticket #1: Test"
-            )
+        )
+
+        mock_handler.assert_awaited_once_with(
+            self.mock_client,
+            {
+                "summary": "Test",
+                "description": "Desc",
+            },
+        )
+        self.assertEqual(
+            result.content[0].text, "Created ticket #1: Test"
+        )
 
     def test_routes_to_update(self):
-        """Dispatcher routes ticket_update to _handle_update."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_write._handle_update"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(
-                        type="text", text="Updated ticket #42"
-                    )
-                ]
-            )
-
-            result = asyncio.run(
-                handle_ticket_tool(
-                    "ticket_update",
-                    {
-                        "ticket_id": 42,
-                    },
-                    self.mock_client,
+        """Registry routes ticket_update to _handle_update."""
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text", text="Updated ticket #42"
                 )
-            )
+            ]
+        )
+        self._patch_handler("ticket_update", mock_handler)
 
-            mock_handler.assert_awaited_once_with(
-                self.mock_client, {"ticket_id": 42}
+        result = asyncio.run(
+            self.registry.call_tool(
+                "ticket_update",
+                {
+                    "ticket_id": 42,
+                },
+                self.mock_client,
             )
-            self.assertEqual(
-                result.content[0].text, "Updated ticket #42"
-            )
+        )
+
+        mock_handler.assert_awaited_once_with(
+            self.mock_client, {"ticket_id": 42}
+        )
+        self.assertEqual(result.content[0].text, "Updated ticket #42")
 
     def test_routes_to_delete(self):
-        """Dispatcher routes ticket_delete to _handle_delete."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_write._handle_delete"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(
-                        type="text", text="Deleted ticket #42."
-                    )
-                ]
-            )
+        """Registry routes ticket_delete to _handle_delete."""
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text", text="Deleted ticket #42."
+                )
+            ]
+        )
+        self._patch_handler("ticket_delete", mock_handler)
 
-            result = asyncio.run(
-                handle_ticket_tool(
-                    "ticket_delete",
-                    {
-                        "ticket_id": 42,
-                    },
-                    self.mock_client,
+        result = asyncio.run(
+            self.registry.call_tool(
+                "ticket_delete",
+                {
+                    "ticket_id": 42,
+                },
+                self.mock_client,
+            )
+        )
+
+        mock_handler.assert_awaited_once_with(
+            self.mock_client, {"ticket_id": 42}
+        )
+        self.assertEqual(result.content[0].text, "Deleted ticket #42.")
+
+    def test_unknown_tool(self):
+        """Unknown tool name raises ValueError from registry."""
+        with self.assertRaises(ValueError) as ctx:
+            asyncio.run(
+                self.registry.call_tool(
+                    "ticket_unknown", {}, self.mock_client
                 )
             )
 
-            mock_handler.assert_awaited_once_with(
-                self.mock_client, {"ticket_id": 42}
-            )
-            self.assertEqual(
-                result.content[0].text, "Deleted ticket #42."
-            )
+        self.assertIn("Unknown tool", str(ctx.exception))
 
-    def test_unknown_tool(self):
-        """Unknown tool name returns validation_error (ValueError caught by dispatcher)."""
+    def test_none_arguments_defaults_to_empty_dict(self):
+        """Passing None arguments is handled gracefully (converted to empty dict)."""
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[types.TextContent(type="text", text="error")]
+        )
+        self._patch_handler("ticket_create", mock_handler)
+
+        asyncio.run(
+            self.registry.call_tool(
+                "ticket_create", None, self.mock_client
+            )
+        )
+
+        # The registry converts None to {} before passing
+        mock_handler.assert_awaited_once_with(self.mock_client, {})
+
+    def test_generic_exception_returns_server_error(self):
+        """Unexpected exception returns server_error."""
+        mock_handler = AsyncMock()
+        mock_handler.side_effect = RuntimeError("connection reset")
+        self._patch_handler("ticket_update", mock_handler)
+
         result = asyncio.run(
-            handle_ticket_tool("ticket_unknown", {}, self.mock_client)
+            self.registry.call_tool(
+                "ticket_update",
+                {
+                    "ticket_id": 1,
+                },
+                self.mock_client,
+            )
         )
 
         self.assertIsInstance(result, types.CallToolResult)
         self.assertTrue(result.isError)
         self.assertEqual(len(result.content), 1)
-        self.assertIn(
-            "Error (validation_error)", result.content[0].text
-        )
-        self.assertIn(
-            "Unknown ticket write tool", result.content[0].text
-        )
-
-    def test_none_arguments_defaults_to_empty_dict(self):
-        """Passing None arguments is handled gracefully (converted to empty dict)."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_write._handle_create"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[types.TextContent(type="text", text="error")]
-            )
-
-            asyncio.run(
-                handle_ticket_tool(
-                    "ticket_create", None, self.mock_client
-                )
-            )
-
-            # The dispatcher converts None to {} before passing
-            mock_handler.assert_awaited_once_with(self.mock_client, {})
-
-    def test_generic_exception_returns_server_error(self):
-        """Unexpected exception returns server_error."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_write._handle_update"
-        ) as mock_handler:
-            mock_handler.side_effect = RuntimeError("connection reset")
-
-            result = asyncio.run(
-                handle_ticket_tool(
-                    "ticket_update",
-                    {
-                        "ticket_id": 1,
-                    },
-                    self.mock_client,
-                )
-            )
-
-            self.assertIsInstance(result, types.CallToolResult)
-            self.assertTrue(result.isError)
-            self.assertEqual(len(result.content), 1)
-            self.assertIn(
-                "Error (server_error)", result.content[0].text
-            )
-            self.assertIn("connection reset", result.content[0].text)
+        self.assertIn("Error (server_error)", result.content[0].text)
+        self.assertIn("connection reset", result.content[0].text)
 
 
 # ---------------------------------------------------------------------------
@@ -1091,9 +1096,10 @@ class TestHandleTicketSearch:
                 500, "Internal server error"
             )
 
-            # Call through dispatcher so the fault is caught and translated
+            # Call through registry so the fault is caught and translated
+            registry = ToolRegistry(TICKET_READ_SPECS)
             result = self._run(
-                handle_ticket_read_tool("ticket_search", {}, client)
+                registry.call_tool("ticket_search", {}, client)
             )
 
             assert isinstance(result, types.CallToolResult)
@@ -1215,8 +1221,9 @@ class TestHandleTicketGet:
                 404, "Ticket 99999 not found"
             )
 
+            registry = ToolRegistry(TICKET_READ_SPECS)
             result = self._run(
-                handle_ticket_read_tool(
+                registry.call_tool(
                     "ticket_get", {"ticket_id": 99999}, client
                 )
             )
@@ -1450,9 +1457,10 @@ class TestHandleTicketActions:
         client = MagicMock(spec=TracClient)
 
         # _handle_actions raises ValueError when ticket_id missing,
-        # dispatcher catches it and returns validation_error
+        # registry catches it and returns validation_error
+        registry = ToolRegistry(TICKET_READ_SPECS)
         result = self._run(
-            handle_ticket_read_tool("ticket_actions", {}, client)
+            registry.call_tool("ticket_actions", {}, client)
         )
 
         assert isinstance(result, types.CallToolResult)
@@ -1524,173 +1532,164 @@ class TestHandleTicketActions:
 
 
 class TestHandleTicketReadTool:
-    """Tests for handle_ticket_read_tool dispatcher."""
+    """Tests for ToolRegistry dispatch of ticket read tools."""
 
     def _run(self, coro):
         return asyncio.run(coro)
 
+    def _registry(self):
+        return ToolRegistry(TICKET_READ_SPECS)
+
+    def _registry_with_mock(self, tool_name, mock_handler):
+        """Create a registry with a mock handler for the given tool."""
+        from trac_mcp_server.mcp.tools.registry import ToolSpec
+
+        registry = self._registry()
+        orig = registry._specs[tool_name]
+        registry._specs[tool_name] = ToolSpec(
+            tool=orig.tool,
+            permissions=orig.permissions,
+            handler=mock_handler,
+        )
+        return registry
+
     def test_routes_to_search(self):
-        """Dispatcher routes ticket_search to _handle_search."""
+        """Registry routes ticket_search to _handle_search."""
         client = MagicMock(spec=TracClient)
-
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_search"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(type="text", text="search result")
-                ],
-            )
-
-            result = self._run(
-                handle_ticket_read_tool(
-                    "ticket_search", {"query": "status=new"}, client
-                )
-            )
-
-            mock_handler.assert_awaited_once_with(
-                client, {"query": "status=new"}
-            )
-            assert result.content[0].text == "search result"
-
-    def test_routes_to_get(self):
-        """Dispatcher routes ticket_get to _handle_get."""
-        client = MagicMock(spec=TracClient)
-
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_get"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(type="text", text="get result")
-                ],
-            )
-
-            self._run(
-                handle_ticket_read_tool(
-                    "ticket_get", {"ticket_id": 1}, client
-                )
-            )
-
-            mock_handler.assert_awaited_once_with(
-                client, {"ticket_id": 1}
-            )
-
-    def test_routes_to_changelog(self):
-        """Dispatcher routes ticket_changelog to _handle_changelog."""
-        client = MagicMock(spec=TracClient)
-
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_changelog"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(type="text", text="changelog")
-                ]
-            )
-
-            self._run(
-                handle_ticket_read_tool(
-                    "ticket_changelog", {"ticket_id": 1}, client
-                )
-            )
-
-            mock_handler.assert_awaited_once_with(
-                client, {"ticket_id": 1}
-            )
-
-    def test_routes_to_fields(self):
-        """Dispatcher routes ticket_fields to _handle_fields."""
-        client = MagicMock(spec=TracClient)
-
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_fields"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[types.TextContent(type="text", text="fields")],
-            )
-
-            self._run(
-                handle_ticket_read_tool("ticket_fields", {}, client)
-            )
-
-            mock_handler.assert_awaited_once_with(client, {})
-
-    def test_routes_to_actions(self):
-        """Dispatcher routes ticket_actions to _handle_actions."""
-        client = MagicMock(spec=TracClient)
-
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_actions"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
-                content=[
-                    types.TextContent(type="text", text="actions")
-                ],
-            )
-
-            self._run(
-                handle_ticket_read_tool(
-                    "ticket_actions", {"ticket_id": 1}, client
-                )
-            )
-
-            mock_handler.assert_awaited_once_with(
-                client, {"ticket_id": 1}
-            )
-
-    def test_unknown_tool_raises(self):
-        """Unknown tool name raises ValueError caught as validation_error."""
-        client = MagicMock(spec=TracClient)
-
-        result = self._run(
-            handle_ticket_read_tool("ticket_unknown", {}, client)
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[
+                types.TextContent(type="text", text="search result")
+            ],
+        )
+        registry = self._registry_with_mock(
+            "ticket_search", mock_handler
         )
 
-        # ValueError is caught by dispatcher and translated to validation_error
-        assert isinstance(result, types.CallToolResult)
-        assert result.isError is True
-        assert "Error (validation_error)" in result.content[0].text
-        assert "Unknown ticket read tool" in result.content[0].text
+        result = self._run(
+            registry.call_tool(
+                "ticket_search", {"query": "status=new"}, client
+            )
+        )
+
+        mock_handler.assert_awaited_once_with(
+            client, {"query": "status=new"}
+        )
+        assert result.content[0].text == "search result"
+
+    def test_routes_to_get(self):
+        """Registry routes ticket_get to _handle_get."""
+        client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[types.TextContent(type="text", text="get result")],
+        )
+        registry = self._registry_with_mock("ticket_get", mock_handler)
+
+        self._run(
+            registry.call_tool("ticket_get", {"ticket_id": 1}, client)
+        )
+
+        mock_handler.assert_awaited_once_with(client, {"ticket_id": 1})
+
+    def test_routes_to_changelog(self):
+        """Registry routes ticket_changelog to _handle_changelog."""
+        client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[types.TextContent(type="text", text="changelog")]
+        )
+        registry = self._registry_with_mock(
+            "ticket_changelog", mock_handler
+        )
+
+        self._run(
+            registry.call_tool(
+                "ticket_changelog", {"ticket_id": 1}, client
+            )
+        )
+
+        mock_handler.assert_awaited_once_with(client, {"ticket_id": 1})
+
+    def test_routes_to_fields(self):
+        """Registry routes ticket_fields to _handle_fields."""
+        client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[types.TextContent(type="text", text="fields")],
+        )
+        registry = self._registry_with_mock(
+            "ticket_fields", mock_handler
+        )
+
+        self._run(registry.call_tool("ticket_fields", {}, client))
+
+        mock_handler.assert_awaited_once_with(client, {})
+
+    def test_routes_to_actions(self):
+        """Registry routes ticket_actions to _handle_actions."""
+        client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.return_value = types.CallToolResult(
+            content=[types.TextContent(type="text", text="actions")],
+        )
+        registry = self._registry_with_mock(
+            "ticket_actions", mock_handler
+        )
+
+        self._run(
+            registry.call_tool(
+                "ticket_actions", {"ticket_id": 1}, client
+            )
+        )
+
+        mock_handler.assert_awaited_once_with(client, {"ticket_id": 1})
+
+    def test_unknown_tool_raises(self):
+        """Unknown tool name raises ValueError from registry."""
+        client = MagicMock(spec=TracClient)
+
+        import pytest
+
+        with pytest.raises(ValueError, match="Unknown tool"):
+            self._run(
+                self._registry().call_tool("ticket_unknown", {}, client)
+            )
 
     def test_xmlrpc_fault_translated(self):
         """XML-RPC fault from handler is translated to structured error."""
         client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.side_effect = xmlrpc.client.Fault(
+            403, "Permission denied"
+        )
+        registry = self._registry_with_mock("ticket_get", mock_handler)
 
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_get"
-        ) as mock_handler:
-            mock_handler.side_effect = xmlrpc.client.Fault(
-                403, "Permission denied"
-            )
+        result = self._run(
+            registry.call_tool("ticket_get", {"ticket_id": 1}, client)
+        )
 
-            result = self._run(
-                handle_ticket_read_tool(
-                    "ticket_get", {"ticket_id": 1}, client
-                )
-            )
-
-            assert isinstance(result, types.CallToolResult)
-            assert result.isError is True
-            assert "Error (permission_denied)" in result.content[0].text
+        assert isinstance(result, types.CallToolResult)
+        assert result.isError is True
+        assert "Error (permission_denied)" in result.content[0].text
 
     def test_generic_exception_translated(self):
         """Unexpected exception is caught and returned as server_error."""
         client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.side_effect = RuntimeError("connection reset")
+        registry = self._registry_with_mock(
+            "ticket_search", mock_handler
+        )
 
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_search"
-        ) as mock_handler:
-            mock_handler.side_effect = RuntimeError("connection reset")
+        result = self._run(
+            registry.call_tool("ticket_search", {}, client)
+        )
 
-            result = self._run(
-                handle_ticket_read_tool("ticket_search", {}, client)
-            )
-
-            assert isinstance(result, types.CallToolResult)
-            assert result.isError is True
-            assert "Error (server_error)" in result.content[0].text
-            assert "connection reset" in result.content[0].text
+        assert isinstance(result, types.CallToolResult)
+        assert result.isError is True
+        assert "Error (server_error)" in result.content[0].text
+        assert "connection reset" in result.content[0].text
 
     def test_get_invalid_ticket_data_format(self):
         """Invalid ticket data format from server returns error."""
@@ -1714,20 +1713,16 @@ class TestHandleTicketReadTool:
     def test_xmlrpc_version_conflict_translated(self):
         """Version conflict fault is translated to version_conflict error."""
         client = MagicMock(spec=TracClient)
+        mock_handler = AsyncMock()
+        mock_handler.side_effect = xmlrpc.client.Fault(
+            409, "Version conflict - not modified"
+        )
+        registry = self._registry_with_mock("ticket_get", mock_handler)
 
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_read._handle_get"
-        ) as mock_handler:
-            mock_handler.side_effect = xmlrpc.client.Fault(
-                409, "Version conflict - not modified"
-            )
+        result = self._run(
+            registry.call_tool("ticket_get", {"ticket_id": 1}, client)
+        )
 
-            result = self._run(
-                handle_ticket_read_tool(
-                    "ticket_get", {"ticket_id": 1}, client
-                )
-            )
-
-            assert isinstance(result, types.CallToolResult)
-            assert result.isError is True
-            assert "Error (version_conflict)" in result.content[0].text
+        assert isinstance(result, types.CallToolResult)
+        assert result.isError is True
+        assert "Error (version_conflict)" in result.content[0].text
