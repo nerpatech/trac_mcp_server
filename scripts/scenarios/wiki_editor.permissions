@@ -1,0 +1,6 @@
+# Wiki editor agent persona
+# Can view, create, and modify wiki pages but cannot delete them.
+# No ticket or milestone access.
+WIKI_VIEW
+WIKI_CREATE
+WIKI_MODIFY
