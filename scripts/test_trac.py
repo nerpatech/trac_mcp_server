@@ -31,20 +31,8 @@ from trac_mcp_server import __version__ as PACKAGE_VERSION
 from trac_mcp_server.config import Config, load_config
 from trac_mcp_server.core.async_utils import run_sync
 from trac_mcp_server.core.client import TracClient
-from trac_mcp_server.mcp.tools.milestone import handle_milestone_tool
-from trac_mcp_server.mcp.tools.system import handle_system_tool
-from trac_mcp_server.mcp.tools.ticket_batch import (
-    handle_ticket_batch_tool,
-)
-from trac_mcp_server.mcp.tools.ticket_read import (
-    handle_ticket_read_tool,
-)
-from trac_mcp_server.mcp.tools.ticket_write import (
-    handle_ticket_write_tool,
-)
-from trac_mcp_server.mcp.tools.wiki_file import handle_wiki_file_tool
-from trac_mcp_server.mcp.tools.wiki_read import handle_wiki_read_tool
-from trac_mcp_server.mcp.tools.wiki_write import handle_wiki_write_tool
+from trac_mcp_server.mcp.tools import ALL_SPECS
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
 
 VERSION = "5.0.0"
 
@@ -98,6 +86,7 @@ class ComprehensiveMCPTester:
     ):
         self.config = config
         self.client = TracClient(config)
+        self.registry = ToolRegistry(ALL_SPECS)
         self.logger = logger
         self.verbose = verbose
         self.report = CheckReport()
@@ -141,67 +130,17 @@ class ComprehensiveMCPTester:
                     True,
                     f"Trac MCP server connected successfully. API version: {version}",
                 )
-            elif tool_name == "get_server_time":
-                results = await handle_system_tool(
-                    tool_name, arguments, self.client
-                )
-            elif tool_name.startswith("ticket_"):
-                if tool_name in (
-                    "ticket_search",
-                    "ticket_get",
-                    "ticket_changelog",
-                    "ticket_fields",
-                    "ticket_actions",
-                ):
-                    results = await handle_ticket_read_tool(
-                        tool_name, arguments, self.client
-                    )
-                elif tool_name.startswith("ticket_batch_"):
-                    results = await handle_ticket_batch_tool(
-                        tool_name, arguments, self.client
-                    )
-                else:
-                    results = await handle_ticket_write_tool(
-                        tool_name, arguments, self.client
-                    )
-            elif tool_name.startswith("wiki_file_"):
-                results = await handle_wiki_file_tool(
-                    tool_name, arguments, self.client
-                )
-            elif tool_name.startswith("wiki_"):
-                if tool_name in (
-                    "wiki_get",
-                    "wiki_search",
-                    "wiki_recent_changes",
-                ):
-                    results = await handle_wiki_read_tool(
-                        tool_name, arguments, self.client
-                    )
-                else:
-                    results = await handle_wiki_write_tool(
-                        tool_name, arguments, self.client
-                    )
-            elif tool_name.startswith("milestone_"):
-                results = await handle_milestone_tool(
-                    tool_name, arguments, self.client
-                )
-            else:
-                return False, f"Unknown tool: {tool_name}"
 
-            # Extract text from results
-            # results can be either a list[TextContent] or a CallToolResult
-            if isinstance(results, types.CallToolResult):
-                # Extract text from CallToolResult.content
-                response_text = "\n".join(
-                    c.text
-                    for c in results.content
-                    if isinstance(c, types.TextContent)
-                )
-            else:
-                # Extract text from list of TextContent
-                response_text = "\n".join(
-                    r.text for r in results if hasattr(r, "text")
-                )
+            results = await self.registry.call_tool(
+                tool_name, arguments or {}, self.client
+            )
+
+            # Extract text from CallToolResult.content
+            response_text = "\n".join(
+                c.text
+                for c in results.content
+                if isinstance(c, types.TextContent)
+            )
 
             # Check for error indicators in response
             is_error = (

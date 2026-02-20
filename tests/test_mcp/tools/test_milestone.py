@@ -2,7 +2,7 @@
 Integration tests for milestone tool dispatch in MCP server.
 
 These tests verify that milestone tools are properly registered in handle_list_tools
-and that milestone tool calls are correctly routed to handle_milestone_tool in server.py.
+and that milestone tool calls are correctly routed via ToolRegistry in server.py.
 """
 
 import asyncio
@@ -11,13 +11,34 @@ import xmlrpc.client
 from unittest.mock import MagicMock, patch
 
 from trac_mcp_server.mcp.server import (
+    PING_SPEC,
     handle_call_tool,
     handle_list_tools,
+    set_registry,
 )
+from trac_mcp_server.mcp.tools import ALL_SPECS
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
+
+
+def _init_registry():
+    """Initialize the global registry for testing."""
+    registry = ToolRegistry([PING_SPEC] + ALL_SPECS)
+    set_registry(registry)
+
+
+def _clear_registry():
+    """Clear the global registry after testing."""
+    set_registry(None)
 
 
 class TestMilestoneToolRegistration(unittest.TestCase):
     """Test milestone tools are registered in handle_list_tools."""
+
+    def setUp(self):
+        _init_registry()
+
+    def tearDown(self):
+        _clear_registry()
 
     def test_all_milestone_tools_registered(self):
         """Test all 5 milestone tools appear in handle_list_tools response."""
@@ -109,6 +130,12 @@ class TestMilestoneToolRegistration(unittest.TestCase):
 class TestMilestoneToolDispatch(unittest.TestCase):
     """Test milestone tool calls are dispatched correctly."""
 
+    def setUp(self):
+        _init_registry()
+
+    def tearDown(self):
+        _clear_registry()
+
     @patch("trac_mcp_server.mcp.server.get_client")
     @patch("trac_mcp_server.mcp.tools.milestone.run_sync")
     def test_list_milestones_dispatch(
@@ -149,8 +176,6 @@ class TestMilestoneToolDispatch(unittest.TestCase):
         self, mock_run_sync, mock_get_client
     ):
         """Test milestone_get is dispatched to handle_milestone_tool."""
-        # Mock config
-
         # Mock TracClient
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -189,8 +214,6 @@ class TestMilestoneToolDispatch(unittest.TestCase):
         self, mock_run_sync, mock_get_client
     ):
         """Test milestone_create is dispatched to handle_milestone_tool."""
-        # Mock config
-
         # Mock TracClient
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -226,8 +249,6 @@ class TestMilestoneToolDispatch(unittest.TestCase):
         self, mock_run_sync, mock_get_client
     ):
         """Test milestone_update is dispatched to handle_milestone_tool."""
-        # Mock config
-
         # Mock TracClient
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -268,8 +289,6 @@ class TestMilestoneToolDispatch(unittest.TestCase):
         self, mock_run_sync, mock_get_client
     ):
         """Test milestone_delete is dispatched to handle_milestone_tool."""
-        # Mock config
-
         # Mock TracClient
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -351,12 +370,16 @@ class TestMilestoneToolDispatch(unittest.TestCase):
 class TestMilestoneToolErrors(unittest.TestCase):
     """Test milestone tool error handling."""
 
+    def setUp(self):
+        _init_registry()
+
+    def tearDown(self):
+        _clear_registry()
+
     @patch("trac_mcp_server.mcp.server.get_client")
     @patch("trac_mcp_server.mcp.tools.milestone.run_sync")
     def test_milestone_not_found(self, mock_run_sync, mock_get_client):
         """Test error when milestone not found."""
-        # Mock config
-
         # Mock TracClient
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -388,8 +411,6 @@ class TestMilestoneToolErrors(unittest.TestCase):
         self, mock_run_sync, mock_get_client
     ):
         """Test error when user lacks TICKET_ADMIN permission."""
-        # Mock config
-
         # Mock TracClient
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client

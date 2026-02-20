@@ -13,6 +13,7 @@ import mcp.types as types
 from ...core.async_utils import run_sync
 from ...core.client import TracClient
 from .errors import build_error_response
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -29,34 +30,6 @@ SYSTEM_TOOLS = [
         },
     )
 ]
-
-
-async def handle_system_tool(
-    name: str, arguments: dict | None, client: TracClient
-) -> types.CallToolResult:
-    """Handle system tool execution.
-
-    Args:
-        name: Tool name (get_server_time)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with both text content and structured JSON
-
-    Raises:
-        ValueError: If tool name is unknown
-    """
-    # Ensure arguments is a dict
-    if arguments is None:
-        arguments = {}
-
-    # Route to appropriate handler
-    match name:
-        case "get_server_time":
-            return await _handle_get_server_time(client, arguments)
-        case _:
-            raise ValueError(f"Unknown system tool: {name}")
 
 
 async def _handle_get_server_time(
@@ -130,3 +103,13 @@ async def _handle_get_server_time(
             f"Failed to get server time: {str(e)}",
             "Check Trac server connectivity and permissions.",
         )
+
+
+# ToolSpec list for registry-based dispatch
+SYSTEM_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=SYSTEM_TOOLS[0],
+        permissions=frozenset(),
+        handler=_handle_get_server_time,
+    ),
+]

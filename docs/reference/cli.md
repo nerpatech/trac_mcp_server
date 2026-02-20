@@ -20,6 +20,7 @@ trac-mcp-server --version
 | `--password PASS` | -- | Override Trac password (takes precedence over `TRAC_PASSWORD` env var) |
 | `--insecure` | `false` | Skip SSL certificate verification (development only) |
 | `--log-file PATH` | `/tmp/trac-mcp-server.log` | Log file location |
+| `--permissions-file PATH` | -- | Restrict available tools by Trac permissions (see [Tool Architecture](tool-architecture.md#permission-filtering)) |
 | `--version` | -- | Show version and exit |
 
 ### Configuration

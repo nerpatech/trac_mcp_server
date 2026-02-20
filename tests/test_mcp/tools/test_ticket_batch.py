@@ -3,16 +3,17 @@
 import asyncio
 import unittest
 import xmlrpc.client
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import mcp.types as types
 
+from trac_mcp_server.mcp.tools.registry import ToolRegistry, ToolSpec
 from trac_mcp_server.mcp.tools.ticket_batch import (
+    TICKET_BATCH_SPECS,
     TICKET_BATCH_TOOLS,
     _handle_batch_create,
     _handle_batch_delete,
     _handle_batch_update,
-    handle_ticket_batch_tool,
 )
 
 
@@ -552,112 +553,129 @@ class TestHandleBatchUpdate(unittest.TestCase):
 
 
 class TestHandleTicketBatchToolDispatcher(unittest.TestCase):
-    """Tests for handle_ticket_batch_tool dispatcher."""
+    """Tests for ToolRegistry dispatch of ticket batch tools."""
 
     def setUp(self):
         self.mock_client = MagicMock()
         self.mock_client.config.max_batch_size = 500
+        self.registry = ToolRegistry(TICKET_BATCH_SPECS)
+
+    def _make_registry_with_mock(self, tool_name, mock_handler):
+        """Build a ToolRegistry with a single mock-handler ToolSpec."""
+        tool_def = next(
+            s.tool
+            for s in TICKET_BATCH_SPECS
+            if s.tool.name == tool_name
+        )
+        spec = ToolSpec(
+            tool=tool_def,
+            permissions=frozenset(),
+            handler=mock_handler,
+        )
+        return ToolRegistry([spec])
 
     def test_routes_to_batch_create(self):
-        """Dispatcher routes ticket_batch_create to _handle_batch_create."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_batch._handle_batch_create"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
+        """Registry routes ticket_batch_create to _handle_batch_create."""
+        mock_handler = AsyncMock(
+            return_value=types.CallToolResult(
                 content=[
                     types.TextContent(type="text", text="batch created")
                 ]
             )
+        )
+        registry = self._make_registry_with_mock(
+            "ticket_batch_create", mock_handler
+        )
 
-            result = asyncio.run(
-                handle_ticket_batch_tool(
-                    "ticket_batch_create",
-                    {"tickets": []},
-                    self.mock_client,
-                )
+        result = asyncio.run(
+            registry.call_tool(
+                "ticket_batch_create",
+                {"tickets": []},
+                self.mock_client,
             )
+        )
 
-            mock_handler.assert_awaited_once_with(
-                self.mock_client, {"tickets": []}
-            )
-            self.assertEqual(result.content[0].text, "batch created")
+        mock_handler.assert_awaited_once_with(
+            self.mock_client, {"tickets": []}
+        )
+        self.assertEqual(result.content[0].text, "batch created")
 
     def test_routes_to_batch_delete(self):
-        """Dispatcher routes ticket_batch_delete to _handle_batch_delete."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_batch._handle_batch_delete"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
+        """Registry routes ticket_batch_delete to _handle_batch_delete."""
+        mock_handler = AsyncMock(
+            return_value=types.CallToolResult(
                 content=[
                     types.TextContent(type="text", text="batch deleted")
                 ]
             )
+        )
+        registry = self._make_registry_with_mock(
+            "ticket_batch_delete", mock_handler
+        )
 
-            result = asyncio.run(
-                handle_ticket_batch_tool(
-                    "ticket_batch_delete",
-                    {"ticket_ids": [1]},
-                    self.mock_client,
-                )
+        result = asyncio.run(
+            registry.call_tool(
+                "ticket_batch_delete",
+                {"ticket_ids": [1]},
+                self.mock_client,
             )
+        )
 
-            mock_handler.assert_awaited_once_with(
-                self.mock_client, {"ticket_ids": [1]}
-            )
-            self.assertEqual(result.content[0].text, "batch deleted")
+        mock_handler.assert_awaited_once_with(
+            self.mock_client, {"ticket_ids": [1]}
+        )
+        self.assertEqual(result.content[0].text, "batch deleted")
 
     def test_routes_to_batch_update(self):
-        """Dispatcher routes ticket_batch_update to _handle_batch_update."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_batch._handle_batch_update"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
+        """Registry routes ticket_batch_update to _handle_batch_update."""
+        mock_handler = AsyncMock(
+            return_value=types.CallToolResult(
                 content=[
                     types.TextContent(type="text", text="batch updated")
                 ]
             )
+        )
+        registry = self._make_registry_with_mock(
+            "ticket_batch_update", mock_handler
+        )
 
-            result = asyncio.run(
-                handle_ticket_batch_tool(
-                    "ticket_batch_update",
-                    {"updates": []},
-                    self.mock_client,
-                )
+        result = asyncio.run(
+            registry.call_tool(
+                "ticket_batch_update",
+                {"updates": []},
+                self.mock_client,
             )
+        )
 
-            mock_handler.assert_awaited_once_with(
-                self.mock_client, {"updates": []}
-            )
-            self.assertEqual(result.content[0].text, "batch updated")
+        mock_handler.assert_awaited_once_with(
+            self.mock_client, {"updates": []}
+        )
+        self.assertEqual(result.content[0].text, "batch updated")
 
     def test_unknown_batch_tool(self):
-        """Unknown batch tool name returns validation_error."""
-        result = asyncio.run(
-            handle_ticket_batch_tool(
-                "ticket_batch_unknown", {}, self.mock_client
+        """Unknown batch tool name raises ValueError."""
+        with self.assertRaises(ValueError, msg="Unknown tool"):
+            asyncio.run(
+                self.registry.call_tool(
+                    "ticket_batch_unknown", {}, self.mock_client
+                )
             )
-        )
-
-        self.assertIsInstance(result, types.CallToolResult)
-        self.assertTrue(result.isError)
-        self.assertIn("validation_error", result.content[0].text)
-        self.assertIn(
-            "Unknown ticket batch tool", result.content[0].text
-        )
 
     def test_none_arguments_defaults_to_empty_dict(self):
         """Passing None arguments is converted to empty dict."""
-        with patch(
-            "trac_mcp_server.mcp.tools.ticket_batch._handle_batch_create"
-        ) as mock_handler:
-            mock_handler.return_value = types.CallToolResult(
+        mock_handler = AsyncMock(
+            return_value=types.CallToolResult(
                 content=[types.TextContent(type="text", text="result")]
             )
+        )
+        registry = self._make_registry_with_mock(
+            "ticket_batch_create", mock_handler
+        )
 
-            asyncio.run(
-                handle_ticket_batch_tool(
-                    "ticket_batch_create", None, self.mock_client
-                )
+        asyncio.run(
+            registry.call_tool(
+                "ticket_batch_create", None, self.mock_client
             )
+        )
 
-            mock_handler.assert_awaited_once_with(self.mock_client, {})
+        mock_handler.assert_awaited_once_with(self.mock_client, {})

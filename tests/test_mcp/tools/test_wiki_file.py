@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import mcp.types as types
 
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
 from trac_mcp_server.mcp.tools.wiki_file import (
+    WIKI_FILE_SPECS,
     _strip_yaml_frontmatter,
-    handle_wiki_file_tool,
 )
+
+_registry = ToolRegistry(WIKI_FILE_SPECS)
 
 # =============================================================================
 # _strip_yaml_frontmatter
@@ -45,7 +48,7 @@ class TestStripYamlFrontmatter:
 
 
 # =============================================================================
-# _handle_detect_format (via handle_wiki_file_tool)
+# _handle_detect_format (via ToolRegistry.call_tool)
 # =============================================================================
 
 
@@ -56,7 +59,7 @@ class TestDetectFormat:
         md_file = tmp_path / "page.md"
         md_file.write_text("# Hello\n\nSome **bold** text.")
         client = MagicMock()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(md_file)},
             client,
@@ -70,7 +73,7 @@ class TestDetectFormat:
         wiki_file = tmp_path / "page.wiki"
         wiki_file.write_text("= Title =\n\n'''bold''' text.")
         client = MagicMock()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(wiki_file)},
             client,
@@ -82,7 +85,7 @@ class TestDetectFormat:
         txt_file = tmp_path / "page.txt"
         txt_file.write_text("= Heading =\n\n'''bold''' and {{{code}}}")
         client = MagicMock()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(txt_file)},
             client,
@@ -92,7 +95,7 @@ class TestDetectFormat:
 
     async def test_missing_file_path(self):
         client = MagicMock()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format", {}, client
         )
         assert isinstance(result, types.CallToolResult)
@@ -101,7 +104,7 @@ class TestDetectFormat:
 
     async def test_nonexistent_file(self, tmp_path):
         client = MagicMock()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(tmp_path / "no_such_file.md")},
             client,
@@ -112,7 +115,7 @@ class TestDetectFormat:
 
 
 # =============================================================================
-# _handle_push (via handle_wiki_file_tool)
+# _handle_push (via ToolRegistry.call_tool)
 # =============================================================================
 
 
@@ -154,7 +157,7 @@ class TestPush:
             "name": "TestPage",
         }
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -184,7 +187,7 @@ class TestPush:
             "name": "TestPage",
         }
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -218,7 +221,7 @@ class TestPush:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_push",
             {
                 "file_path": str(md_file),
@@ -253,7 +256,7 @@ class TestPush:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_push",
             {
                 "file_path": str(md_file),
@@ -279,7 +282,7 @@ class TestPush:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(wiki_file), "page_name": "TestPage"},
             client,
@@ -319,7 +322,7 @@ class TestPush:
             "name": "NewPage",
         }
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "NewPage"},
             client,
@@ -334,7 +337,7 @@ class TestPush:
 
     async def test_push_missing_file_path(self):
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push", {"page_name": "TestPage"}, client
         )
         assert isinstance(result, types.CallToolResult)
@@ -345,7 +348,7 @@ class TestPush:
         md_file = tmp_path / "page.md"
         md_file.write_text("hello")
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push", {"file_path": str(md_file)}, client
         )
         assert isinstance(result, types.CallToolResult)
@@ -354,7 +357,7 @@ class TestPush:
 
 
 # =============================================================================
-# _handle_pull (via handle_wiki_file_tool)
+# _handle_pull (via ToolRegistry.call_tool)
 # =============================================================================
 
 
@@ -374,7 +377,7 @@ class TestPull:
             "author": "admin",
         }
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -408,7 +411,7 @@ class TestPull:
             "author": "admin",
         }
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -434,7 +437,7 @@ class TestPull:
         client.get_wiki_page.return_value = "= Hello ="
         client.get_wiki_page_info.return_value = {"version": 1}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "TestPage", "file_path": str(out_file)},
             client,
@@ -455,7 +458,7 @@ class TestPull:
             "author": "admin",
         }
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -481,7 +484,7 @@ class TestPull:
             1, "Page NoSuchPage does not exist"
         )
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "NoSuchPage", "file_path": str(out_file)},
             client,
@@ -500,7 +503,7 @@ class TestPull:
         """Missing page_name returns validation error."""
         out_file = tmp_path / "page.md"
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {"file_path": str(out_file)},
             client,
@@ -512,7 +515,7 @@ class TestPull:
     async def test_pull_missing_file_path(self):
         """Missing file_path returns validation error."""
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "TestPage"},
             client,
@@ -524,7 +527,7 @@ class TestPull:
     async def test_pull_invalid_output_path(self):
         """Invalid output path (parent doesn't exist) returns validation error."""
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -537,7 +540,7 @@ class TestPull:
         assert "validation_error" in result.content[0].text
 
     async def test_pull_other_fault_reraises(self, tmp_path):
-        """Non-not-found Fault is reraised and caught by outer handler."""
+        """Non-not-found Fault is caught by the registry error handler."""
         out_file = tmp_path / "page.md"
 
         client = _make_client()
@@ -545,13 +548,13 @@ class TestPull:
             403, "Permission denied"
         )
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "SecretPage", "file_path": str(out_file)},
             client,
         )
 
-        # Should be caught by the outer exception handler as server_error
+        # ToolRegistry classifies fault 403 as permission_denied
         assert isinstance(result, types.CallToolResult)
         assert result.isError is True
-        assert "server_error" in result.content[0].text
+        assert "permission_denied" in result.content[0].text

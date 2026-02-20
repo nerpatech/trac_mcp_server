@@ -14,7 +14,10 @@ from unittest.mock import MagicMock
 
 import mcp.types as types
 
-from trac_mcp_server.mcp.tools.wiki_file import handle_wiki_file_tool
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
+from trac_mcp_server.mcp.tools.wiki_file import WIKI_FILE_SPECS
+
+_registry = ToolRegistry(WIKI_FILE_SPECS)
 
 
 def _make_client():
@@ -50,7 +53,7 @@ class TestPushMarkdownConversion:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -80,7 +83,7 @@ class TestPushMarkdownConversion:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -104,7 +107,7 @@ class TestPushMarkdownConversion:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -131,7 +134,7 @@ class TestPushMarkdownConversion:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -166,7 +169,7 @@ class TestPushTracWikiPassthrough:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(wiki_file), "page_name": "TestPage"},
             client,
@@ -190,7 +193,7 @@ class TestPushTracWikiPassthrough:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(wiki_file), "page_name": "TestPage"},
             client,
@@ -220,7 +223,7 @@ class TestPullMarkdownConversion:
         )
         client.get_wiki_page_info.return_value = {"version": 3}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -248,7 +251,7 @@ class TestPullMarkdownConversion:
         )
         client.get_wiki_page_info.return_value = {"version": 1}
 
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "TestPage", "file_path": str(out_file)},
             client,
@@ -267,7 +270,7 @@ class TestPullMarkdownConversion:
         client.get_wiki_page.return_value = original
         client.get_wiki_page_info.return_value = {"version": 2}
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -310,7 +313,7 @@ class TestRoundTripFidelity:
         client.put_wiki_page.side_effect = capture_put
 
         # Push
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -324,7 +327,7 @@ class TestRoundTripFidelity:
         client.get_wiki_page_info.return_value = {"version": 1}
 
         out_file = tmp_path / "pulled.md"
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "TestPage", "file_path": str(out_file)},
             client,
@@ -359,7 +362,7 @@ class TestRoundTripFidelity:
         )
         client.put_wiki_page.side_effect = capture_put
 
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "ListPage"},
             client,
@@ -375,7 +378,7 @@ class TestRoundTripFidelity:
         client.get_wiki_page_info.return_value = {"version": 1}
 
         out_file = tmp_path / "pulled_lists.md"
-        await handle_wiki_file_tool(
+        await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "ListPage", "file_path": str(out_file)},
             client,
@@ -403,7 +406,7 @@ class TestFormatDetectionConsistency:
         client = _make_client()
 
         # Detect format
-        detect_result = await handle_wiki_file_tool(
+        detect_result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(md_file)},
             client,
@@ -419,7 +422,7 @@ class TestFormatDetectionConsistency:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        push_result = await handle_wiki_file_tool(
+        push_result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -437,7 +440,7 @@ class TestFormatDetectionConsistency:
 
         client = _make_client()
 
-        detect_result = await handle_wiki_file_tool(
+        detect_result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(wiki_file)},
             client,
@@ -451,7 +454,7 @@ class TestFormatDetectionConsistency:
         )
         client.put_wiki_page.return_value = {"version": 1}
 
-        push_result = await handle_wiki_file_tool(
+        push_result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(wiki_file), "page_name": "TestPage"},
             client,
@@ -470,7 +473,7 @@ class TestFormatDetectionConsistency:
         )
 
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": str(txt_file)},
             client,
@@ -496,7 +499,7 @@ class TestErrorPaths:
     async def test_push_nonexistent_file(self):
         """Push non-existent file returns validation error."""
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {
                 "file_path": "/nonexistent/file.md",
@@ -518,7 +521,7 @@ class TestErrorPaths:
             1, "Page NoSuchPage does not exist"
         )
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {"page_name": "NoSuchPage", "file_path": str(out_file)},
             client,
@@ -533,7 +536,7 @@ class TestErrorPaths:
     async def test_pull_invalid_output_directory(self):
         """Pull to path with non-existent parent directory returns error."""
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_pull",
             {
                 "page_name": "TestPage",
@@ -549,7 +552,7 @@ class TestErrorPaths:
     async def test_detect_format_nonexistent_file(self):
         """detect_format on non-existent file returns validation error."""
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_detect_format",
             {"file_path": "/nonexistent/file.md"},
             client,
@@ -560,7 +563,7 @@ class TestErrorPaths:
         assert "validation_error" in result.content[0].text
 
     async def test_push_permission_denied_fault(self, tmp_path):
-        """Push with permission denied Fault returns server_error."""
+        """Push with permission denied Fault returns permission_denied error."""
         md_file = tmp_path / "page.md"
         md_file.write_text("# Hello")
 
@@ -569,7 +572,7 @@ class TestErrorPaths:
             403, "Permission denied"
         )
 
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": str(md_file), "page_name": "TestPage"},
             client,
@@ -577,12 +580,12 @@ class TestErrorPaths:
 
         assert isinstance(result, types.CallToolResult)
         assert result.isError is True
-        assert "server_error" in result.content[0].text
+        assert "permission_denied" in result.content[0].text
 
     async def test_push_relative_file_path(self, tmp_path):
         """Push with relative file path returns validation error."""
         client = _make_client()
-        result = await handle_wiki_file_tool(
+        result = await _registry.call_tool(
             "wiki_file_push",
             {"file_path": "relative/path.md", "page_name": "TestPage"},
             client,

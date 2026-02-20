@@ -23,6 +23,7 @@ from ...file_handler import (
     write_file,
 )
 from .errors import build_error_response
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -143,56 +144,8 @@ def _strip_yaml_frontmatter(content: str) -> str:
     return content
 
 
-async def handle_wiki_file_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle wiki file tool execution.
-
-    Args:
-        name: Tool name (wiki_file_push, wiki_file_pull, wiki_file_detect_format)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with text content and optional structured content
-    """
-    args = arguments or {}
-
-    try:
-        match name:
-            case "wiki_file_push":
-                return await _handle_push(args, client)
-            case "wiki_file_pull":
-                return await _handle_pull(args, client)
-            case "wiki_file_detect_format":
-                return await _handle_detect_format(args)
-            case _:
-                raise ValueError(f"Unknown wiki_file tool: {name}")
-
-    except NotImplementedError as e:
-        return build_error_response(
-            "not_implemented",
-            str(e),
-            "This tool is not yet implemented.",
-        )
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
-
-
 async def _handle_push(
-    args: dict[str, Any], client: TracClient
+    client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:
     """Handle wiki_file_push.
 
@@ -326,7 +279,7 @@ async def _handle_push(
 
 
 async def _handle_pull(
-    args: dict[str, Any], client: TracClient
+    client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:
     """Handle wiki_file_pull.
 
@@ -415,7 +368,7 @@ async def _handle_pull(
 
 
 async def _handle_detect_format(
-    args: dict[str, Any],
+    client: TracClient, args: dict[str, Any]
 ) -> types.CallToolResult:
     """Handle wiki_file_detect_format.
 
@@ -449,3 +402,23 @@ async def _handle_detect_format(
         content=[types.TextContent(type="text", text=text)],
         structuredContent=structured,
     )
+
+
+# ToolSpec list for registry-based dispatch
+WIKI_FILE_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=WIKI_FILE_TOOLS[0],
+        permissions=frozenset({"WIKI_CREATE", "WIKI_MODIFY"}),
+        handler=_handle_push,
+    ),
+    ToolSpec(
+        tool=WIKI_FILE_TOOLS[1],
+        permissions=frozenset({"WIKI_VIEW"}),
+        handler=_handle_pull,
+    ),
+    ToolSpec(
+        tool=WIKI_FILE_TOOLS[2],
+        permissions=frozenset(),
+        handler=_handle_detect_format,
+    ),
+]

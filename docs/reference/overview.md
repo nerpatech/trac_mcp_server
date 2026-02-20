@@ -18,6 +18,7 @@ For quick start and installation, see the [README](../../README.md).
 | Format Conversion | [format-conversion.md](format-conversion.md) | Markdown to/from TracWiki conversion rules and mappings |
 | Troubleshooting | [troubleshooting.md](troubleshooting.md) | Common errors, solutions, debug mode |
 | Structured JSON Output | [structured-json-output.md](structured-json-output.md) | Dual output format for programmatic consumption |
+| Tool Architecture | [tool-architecture.md](tool-architecture.md) | Internal tool code structure, ToolSpec/ToolRegistry, permission filtering |
 
 ## Additional Documentation
 

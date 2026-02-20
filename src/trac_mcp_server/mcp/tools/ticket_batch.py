@@ -17,6 +17,7 @@ from ...core.async_utils import gather_limited, run_sync_limited
 from ...core.client import TracClient
 from .constants import DEFAULT_TICKET_TYPE
 from .errors import build_error_response
+from .registry import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -101,51 +102,6 @@ TICKET_BATCH_TOOLS = [
         },
     ),
 ]
-
-
-async def handle_ticket_batch_tool(
-    name: str,
-    arguments: dict | None,
-    client: TracClient,
-) -> types.CallToolResult:
-    """Handle batch ticket tool execution.
-
-    Args:
-        name: Tool name (ticket_batch_create, ticket_batch_delete, ticket_batch_update)
-        arguments: Tool arguments (dict or None)
-        client: Pre-configured TracClient instance
-
-    Returns:
-        CallToolResult with per-item results, or CallToolResult with isError=True for errors
-
-    Raises:
-        ValueError: If tool name is unknown
-    """
-    args = arguments or {}
-
-    try:
-        match name:
-            case "ticket_batch_create":
-                return await _handle_batch_create(client, args)
-            case "ticket_batch_delete":
-                return await _handle_batch_delete(client, args)
-            case "ticket_batch_update":
-                return await _handle_batch_update(client, args)
-            case _:
-                raise ValueError(f"Unknown ticket batch tool: {name}")
-
-    except ValueError as e:
-        return build_error_response(
-            "validation_error",
-            str(e),
-            "Check parameter values and retry.",
-        )
-    except Exception as e:
-        return build_error_response(
-            "server_error",
-            str(e),
-            "Contact Trac administrator or retry later.",
-        )
 
 
 async def _handle_batch_create(
@@ -407,3 +363,23 @@ async def _handle_batch_update(
             "failed_count": len(failed),
         },
     )
+
+
+# ToolSpec list for registry-based dispatch
+TICKET_BATCH_SPECS: list[ToolSpec] = [
+    ToolSpec(
+        tool=TICKET_BATCH_TOOLS[0],
+        permissions=frozenset({"TICKET_CREATE", "TICKET_BATCH_MODIFY"}),
+        handler=_handle_batch_create,
+    ),
+    ToolSpec(
+        tool=TICKET_BATCH_TOOLS[1],
+        permissions=frozenset({"TICKET_ADMIN", "TICKET_BATCH_MODIFY"}),
+        handler=_handle_batch_delete,
+    ),
+    ToolSpec(
+        tool=TICKET_BATCH_TOOLS[2],
+        permissions=frozenset({"TICKET_MODIFY", "TICKET_BATCH_MODIFY"}),
+        handler=_handle_batch_update,
+    ),
+]

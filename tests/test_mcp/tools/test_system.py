@@ -12,9 +12,10 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from trac_mcp_server.config import Config
+from trac_mcp_server.mcp.tools.registry import ToolRegistry
 from trac_mcp_server.mcp.tools.system import (
+    SYSTEM_SPECS,
     SYSTEM_TOOLS,
-    handle_system_tool,
 )
 
 
@@ -78,7 +79,9 @@ class TestGetServerTimeHandler(unittest.TestCase):
 
         # Call handler
         result = asyncio.run(
-            handle_system_tool("get_server_time", {}, self.config)
+            ToolRegistry(SYSTEM_SPECS).call_tool(
+                "get_server_time", {}, self.config
+            )
         )
 
         # Verify result structure
@@ -134,7 +137,9 @@ class TestGetServerTimeHandler(unittest.TestCase):
 
         # Call handler
         result = asyncio.run(
-            handle_system_tool("get_server_time", {}, self.config)
+            ToolRegistry(SYSTEM_SPECS).call_tool(
+                "get_server_time", {}, self.config
+            )
         )
 
         # Verify result structure exists (fallback worked)
@@ -163,7 +168,9 @@ class TestGetServerTimeHandler(unittest.TestCase):
 
         # Call handler
         result = asyncio.run(
-            handle_system_tool("get_server_time", {}, self.config)
+            ToolRegistry(SYSTEM_SPECS).call_tool(
+                "get_server_time", {}, self.config
+            )
         )
 
         # Should return CallToolResult with isError=True

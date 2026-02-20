@@ -1,0 +1,336 @@
+"""Tests for ToolSpec, ToolRegistry, and load_permissions_file.
+
+Covers:
+- ToolSpec creation, immutability, and hashable permissions
+- ToolRegistry filtering (no filter, permission filter, empty permissions)
+- ToolRegistry list_tools, tool_count, call_tool
+- load_permissions_file parsing, validation, and error cases
+"""
+
+import asyncio
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import mcp.types as types
+
+from trac_mcp_server.mcp.tools.registry import (
+    ToolRegistry,
+    ToolSpec,
+    load_permissions_file,
+)
+
+
+def _make_spec(
+    name: str,
+    permissions: frozenset[str] | None = None,
+    handler=None,
+) -> ToolSpec:
+    """Helper to create a ToolSpec for testing."""
+    if permissions is None:
+        permissions = frozenset()
+    if handler is None:
+
+        async def handler(client, args):
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(type="text", text=f"ok:{name}")
+                ]
+            )
+
+    return ToolSpec(
+        tool=types.Tool(
+            name=name,
+            description=f"Test tool {name}",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        permissions=permissions,
+        handler=handler,
+    )
+
+
+class TestToolSpec(unittest.TestCase):
+    """Test ToolSpec dataclass."""
+
+    def test_creation(self):
+        """ToolSpec can be created with required fields."""
+        spec = _make_spec("test_tool", frozenset({"TICKET_VIEW"}))
+        self.assertEqual(spec.tool.name, "test_tool")
+        self.assertEqual(spec.permissions, frozenset({"TICKET_VIEW"}))
+        self.assertIsNotNone(spec.handler)
+
+    def test_frozen(self):
+        """ToolSpec is immutable (frozen dataclass)."""
+        spec = _make_spec("test_tool")
+        with self.assertRaises(AttributeError):
+            spec.permissions = frozenset({"NEW"})
+
+    def test_empty_permissions(self):
+        """ToolSpec with empty frozenset means no permission required."""
+        spec = _make_spec("always_available", frozenset())
+        self.assertEqual(spec.permissions, frozenset())
+        self.assertEqual(len(spec.permissions), 0)
+
+
+class TestToolRegistry(unittest.TestCase):
+    """Test ToolRegistry class."""
+
+    def setUp(self):
+        self.specs = [
+            _make_spec("ping", frozenset()),
+            _make_spec("get_server_time", frozenset()),
+            _make_spec("ticket_search", frozenset({"TICKET_VIEW"})),
+            _make_spec("ticket_create", frozenset({"TICKET_CREATE"})),
+            _make_spec(
+                "ticket_batch_create",
+                frozenset({"TICKET_CREATE", "TICKET_BATCH_MODIFY"}),
+            ),
+            _make_spec("wiki_get", frozenset({"WIKI_VIEW"})),
+            _make_spec("wiki_create", frozenset({"WIKI_CREATE"})),
+            _make_spec("milestone_list", frozenset({"MILESTONE_VIEW"})),
+            _make_spec("detect_format", frozenset()),
+        ]
+
+    def test_no_filter_all_tools_registered(self):
+        """With None permissions, all specs are included."""
+        registry = ToolRegistry(self.specs)
+        self.assertEqual(registry.tool_count(), 9)
+
+    def test_filter_by_permissions(self):
+        """Only tools with matching or empty permissions are included."""
+        registry = ToolRegistry(
+            self.specs, frozenset({"TICKET_VIEW", "WIKI_VIEW"})
+        )
+        names = [t.name for t in registry.list_tools()]
+        # Permission-free tools always included
+        self.assertIn("ping", names)
+        self.assertIn("get_server_time", names)
+        self.assertIn("detect_format", names)
+        # Granted permissions
+        self.assertIn("ticket_search", names)
+        self.assertIn("wiki_get", names)
+        # Not granted
+        self.assertNotIn("ticket_create", names)
+        self.assertNotIn("wiki_create", names)
+        self.assertNotIn("milestone_list", names)
+        # Multi-permission: TICKET_CREATE not in allowed, so excluded
+        self.assertNotIn("ticket_batch_create", names)
+
+    def test_empty_permissions_always_included(self):
+        """Specs with empty permissions pass any filter."""
+        registry = ToolRegistry(self.specs, frozenset({"TICKET_VIEW"}))
+        names = [t.name for t in registry.list_tools()]
+        self.assertIn("ping", names)
+        self.assertIn("get_server_time", names)
+        self.assertIn("detect_format", names)
+
+    def test_subset_check(self):
+        """Multi-permission spec included only when ALL permissions are in allowed set."""
+        # Only TICKET_CREATE granted, but TICKET_BATCH_MODIFY also needed
+        registry = ToolRegistry(
+            self.specs, frozenset({"TICKET_CREATE"})
+        )
+        names = [t.name for t in registry.list_tools()]
+        self.assertNotIn("ticket_batch_create", names)
+        self.assertIn("ticket_create", names)
+
+        # Both granted
+        registry2 = ToolRegistry(
+            self.specs,
+            frozenset({"TICKET_CREATE", "TICKET_BATCH_MODIFY"}),
+        )
+        names2 = [t.name for t in registry2.list_tools()]
+        self.assertIn("ticket_batch_create", names2)
+
+    def test_list_tools_returns_tool_objects(self):
+        """list_tools() returns list of types.Tool."""
+        registry = ToolRegistry(self.specs)
+        tools = registry.list_tools()
+        self.assertIsInstance(tools, list)
+        for tool in tools:
+            self.assertIsInstance(tool, types.Tool)
+
+    def test_call_tool_dispatches_to_handler(self):
+        """call_tool() invokes the spec's handler with (client, args)."""
+        calls = []
+
+        async def mock_handler(client, args):
+            calls.append((client, args))
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(type="text", text="dispatched")
+                ]
+            )
+
+        spec = _make_spec("test_dispatch", frozenset(), mock_handler)
+        registry = ToolRegistry([spec])
+        mock_client = MagicMock()
+
+        result = asyncio.run(
+            registry.call_tool(
+                "test_dispatch", {"key": "val"}, mock_client
+            )
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], mock_client)
+        self.assertEqual(calls[0][1], {"key": "val"})
+        self.assertEqual(result.content[0].text, "dispatched")
+
+    def test_call_tool_none_arguments(self):
+        """call_tool() converts None arguments to empty dict."""
+        calls = []
+
+        async def mock_handler(client, args):
+            calls.append(args)
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="ok")]
+            )
+
+        spec = _make_spec("test_none_args", frozenset(), mock_handler)
+        registry = ToolRegistry([spec])
+
+        asyncio.run(
+            registry.call_tool("test_none_args", None, MagicMock())
+        )
+
+        self.assertEqual(calls[0], {})
+
+    def test_call_tool_unknown_raises(self):
+        """Calling unknown tool raises ValueError."""
+        registry = ToolRegistry(self.specs)
+        with self.assertRaises(ValueError) as ctx:
+            asyncio.run(
+                registry.call_tool("nonexistent", {}, MagicMock())
+            )
+        self.assertIn("Unknown tool", str(ctx.exception))
+
+    def test_call_tool_filtered_out_raises(self):
+        """Tool filtered by permissions raises ValueError when called."""
+        registry = ToolRegistry(self.specs, frozenset({"TICKET_VIEW"}))
+        # ticket_create requires TICKET_CREATE, not granted
+        with self.assertRaises(ValueError) as ctx:
+            asyncio.run(
+                registry.call_tool("ticket_create", {}, MagicMock())
+            )
+        self.assertIn("Unknown tool", str(ctx.exception))
+
+
+class TestLoadPermissionsFile(unittest.TestCase):
+    """Test load_permissions_file function."""
+
+    def test_load_valid_file(self, tmp_path=None):
+        """Loads valid permissions file with comments and blanks."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".permissions", delete=False
+        ) as f:
+            f.write("# Read-only permissions\n")
+            f.write("TICKET_VIEW\n")
+            f.write("\n")
+            f.write("WIKI_VIEW\n")
+            f.write("# Another comment\n")
+            f.write("MILESTONE_VIEW\n")
+            path = f.name
+
+        try:
+            result = load_permissions_file(path)
+            self.assertEqual(
+                result,
+                frozenset(
+                    {"TICKET_VIEW", "WIKI_VIEW", "MILESTONE_VIEW"}
+                ),
+            )
+        finally:
+            Path(path).unlink()
+
+    def test_load_file_not_found(self):
+        """FileNotFoundError for nonexistent file."""
+        with self.assertRaises(FileNotFoundError):
+            load_permissions_file("/nonexistent/path.permissions")
+
+    def test_load_empty_file(self):
+        """ValueError for file with no permissions."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".permissions", delete=False
+        ) as f:
+            f.write("# Only comments\n")
+            f.write("\n")
+            path = f.name
+
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                load_permissions_file(path)
+            self.assertIn("No permissions found", str(ctx.exception))
+        finally:
+            Path(path).unlink()
+
+    def test_load_invalid_permission(self):
+        """ValueError for lowercase or invalid format."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".permissions", delete=False
+        ) as f:
+            f.write("TICKET_VIEW\n")
+            f.write("lowercase_bad\n")
+            path = f.name
+
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                load_permissions_file(path)
+            self.assertIn("Invalid permission", str(ctx.exception))
+            self.assertIn("lowercase_bad", str(ctx.exception))
+        finally:
+            Path(path).unlink()
+
+    def test_comments_and_blanks_ignored(self):
+        """Comments and blank lines do not appear in result."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".permissions", delete=False
+        ) as f:
+            f.write("# Comment\n")
+            f.write("\n")
+            f.write("  \n")
+            f.write("TICKET_VIEW\n")
+            f.write("  # Indented comment\n")
+            path = f.name
+
+        try:
+            result = load_permissions_file(path)
+            self.assertEqual(result, frozenset({"TICKET_VIEW"}))
+        finally:
+            Path(path).unlink()
+
+    def test_duplicate_permissions_deduplicated(self):
+        """Duplicate entries are deduplicated."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".permissions", delete=False
+        ) as f:
+            f.write("TICKET_VIEW\n")
+            f.write("TICKET_VIEW\n")
+            f.write("WIKI_VIEW\n")
+            path = f.name
+
+        try:
+            result = load_permissions_file(path)
+            self.assertEqual(
+                result, frozenset({"TICKET_VIEW", "WIKI_VIEW"})
+            )
+        finally:
+            Path(path).unlink()
+
+
+if __name__ == "__main__":
+    unittest.main()
