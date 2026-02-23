@@ -19,6 +19,7 @@ For quick start and installation, see the [README](../../README.md).
 | Troubleshooting | [troubleshooting.md](troubleshooting.md) | Common errors, solutions, debug mode |
 | Structured JSON Output | [structured-json-output.md](structured-json-output.md) | Dual output format for programmatic consumption |
 | Tool Architecture | [tool-architecture.md](tool-architecture.md) | Internal tool code structure, ToolSpec/ToolRegistry, permission filtering |
+| Live Testing | [live-testing.md](live-testing.md) | E2E test harness and agent scenario tests: tool testing, permission scenarios, reference output |
 
 ## Additional Documentation
 
